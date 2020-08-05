@@ -41,10 +41,12 @@ noise_scatters = [scatter_alpha, scatter_bootstrap, scatter_dataorder, scatter_d
 plt.axis('off')
 
 
-N_INTRO = 100
-N_TYPICAL = 50 + N_INTRO
-N_STOCHASTIC = 100 + N_TYPICAL
-N_SWAPING = 200 + N_STOCHASTIC
+N_INTRO = 25
+N_TYPICAL = 150 + N_INTRO
+N_STOCHASTIC = 200 + N_TYPICAL
+N_FLICKERING = 100 + N_STOCHASTIC
+N_SWAPING_FRAMES = 100
+N_SWAPING = N_SWAPING_FRAMES + N_FLICKERING
 N_TYPICAL_VAR = 200 + N_SWAPING
 N_MULTIPLE_VAR = 250 + N_TYPICAL_VAR
 N_VARIANCE_STUDY = 150 + N_MULTIPLE_VAR
@@ -52,9 +54,9 @@ N_INITS = 100 + N_VARIANCE_STUDY
 N_INIT_SELECTION = 25 + N_INITS
 N_DROP_SELECTION = 75 + N_INIT_SELECTION
 N_ASSUMED_DIFF = 100 + N_DROP_SELECTION
-N_REGRESSION_MEAN = 50 + N_ASSUMED_DIFF
-N_RESULTS = 50 + N_REGRESSION_MEAN
-N_POINTS = N_STOCHASTIC - N_TYPICAL
+N_REGRESSION_MEAN = 0 + N_ASSUMED_DIFF
+N_RESULTS = 100 + N_REGRESSION_MEAN
+N_POINTS = 100
 
 
 rng = numpy.random.RandomState(1)
@@ -72,8 +74,10 @@ def animate(i):
         typical_benchmark(i - N_INTRO)
     elif i < N_STOCHASTIC:
         stochastic_benchmark(i - N_TYPICAL)
+    elif i < N_FLICKERING:
+        flicker_points(i - N_STOCHASTIC)
     elif i < N_SWAPING:
-        swaping_rankings(i - N_STOCHASTIC)
+        swaping_rankings(i - N_FLICKERING)
     elif i < N_TYPICAL_VAR:
         typical_variance(i - N_SWAPING)
     elif i < N_MULTIPLE_VAR:
@@ -198,6 +202,20 @@ title = plt.text(
     fontsize=30, horizontalalignment='center', transform=plt.gcf().transFigure,
     verticalalignment='center')
 
+authors = """
+Xavier Bouthillier, Pierre Delaunay, Mirko Bronzi, Assya Trofimov,
+Brennan Nichyporuk, Justin Szeto, Naz Sepah,
+Edward Raff, Kanika Madan, Vikram Voleti,
+Samira Ebrahimi Kahou, Vincent Michalski, Dmitriy Serdyuk,
+Tal Arbel, Christopher Pal, Gaël Varoquaux, Pascal Vincent"""
+
+authors_text = plt.text(
+    0.5, 0.4,
+    authors,
+    fontsize=15, horizontalalignment='center', transform=plt.gcf().transFigure,
+    verticalalignment='center')
+
+
 
 black_patch = patches.Rectangle((0, 0), 0, 0, fill=True, color='black')
 ax.add_patch(black_patch)
@@ -212,6 +230,7 @@ def cover(i):
         black_patch.set_width(5)
         black_patch.set_height(5)
         title.set_position((-1, -1))
+        authors_text.set_position((-1, -1))
 
 
 def typical_benchmark(i):
@@ -341,15 +360,29 @@ def stochastic_benchmark(i):
     C = (3, 0.3)
     D = (4, 0.2)
     
-    n_points = min(i + 1, N_POINTS)
+    n_points = min(i + 2 + 1, N_POINTS)
     data_i = data[:, :, :n_points].transpose(0, 2, 1).reshape(-1, 2)
     scatter_alpha.set_offsets(data_i)
     scatter_alpha.set_sizes(numpy.ones(n_points) * 300)
     scatter_alpha.set_array(colors_matrix[:, :n_points].reshape(-1))
 
 
+def flicker_points(i):
+    # TODO Select points
+
+    k = int(translate(1, N_POINTS, i, 100)) // 2
+    if i >= 60:
+        k = i // 10
+
+    data_i = copy.deepcopy(data[:, :, k])
+    data_tmp = copy.deepcopy(data)
+    scatter_solid.set_offsets(data_i.reshape(-1, 2))
+    # scatter_alpha.set_sizes(numpy.ones(i) * 300)
+    # scatter_alpha.set_array(colors_matrix[:, :i].reshape(-1))
+
+
 def swaping_rankings(i):
-    swap_rankings(i, i // 50, i % 50, 50)
+    swap_rankings(i, i // 100, i % 100, 50)
 
 def swap_rankings(ri, k, i, t):
 
@@ -400,7 +433,7 @@ def swap_rankings(ri, k, i, t):
     # scatter_alpha.set_sizes(numpy.ones(i) * 300)
     # scatter_alpha.set_array(colors_matrix[:, :i].reshape(-1))
 
-    if ri == (N_SWAPING - N_STOCHASTIC - 1):
+    if ri == (N_SWAPING_FRAMES - 1):  # There is 100 Swaping frames
         data[:, 0, :] = data_tmp[:, 0, :]
 
 
@@ -445,20 +478,36 @@ def typical_variance(i):
     # Don't save rotation.
     rotated = copy.deepcopy(data)
 
+    # origin = numpy.array((
+    #     model_xs[1],
+    #     0.5,
+    #     0))[None, :]
+    # new_origin = numpy.array((
+    #     translate(2, 0.6, i, 50),
+    #     translate(0.5, 0.9, i, 50),
+    #     0))[None, :]
     origin = numpy.array((
-        model_xs[1],
-        0.5,
+        (model_xs[2] + model_xs[3]) / 2,
+        # (model_xs[3] + model_xs[0]) / 2,
+        # 0.8,
+        0.7,
         0))[None, :]
     new_origin = numpy.array((
-        translate(2, 0.6, i, 50),
-        translate(0.5, 0.9, i, 50),
+        translate(origin[0, 0], 0.6, i, 100),
+        translate(origin[0, 1], 0.9, i, 100),
         0))[None, :]
 
+    # new_origin = origin
+
+    rotation = translate(0, -90, i, 100)
     scale = numpy.array((
-        translate(1, 3, i, 50), 
-        translate(1, 0.5, i, 50),
+        1 + (4 - 1) * numpy.abs(rotation) / 90,
+        # 1 + (4 - 1) * min(i / 55, 1),
+        # translate(1, 4, i, 100),
+        # translate(1, 1, i, 100),
+        1,
         1))[None, :]
-    rotation = translate(0, -90, i, 50)
+    # scale = numpy.array((1, 1, 1))
     r = R.from_euler('z', rotation, degrees=True)
     xy = data[0, :, :N_POINTS]
     xyz = numpy.concatenate([xy, numpy.ones((1, xy.shape[1]))], axis=0).T
@@ -575,14 +624,16 @@ def variance_study(i):
 
     task_texts[DEMO_TASK].set_position((2.3 / VARIANCE_REDUCE + 1.5, translate(1, 0.9, i, 50)))
 
-    if i > 25:
-        other_task(i - 25, online_data, online_size, RTE, 11.3)
-    if i > 50:
-        other_task(i - 50, online_data, online_size, SEG, 16.3)
-    if i > 75:
-        other_task(i - 75, online_data, online_size, VGG, 21.3)
-    if i > 100:
-        other_task(i - 100, online_data, online_size, MLP, 26.3)
+    delays = [20, 30, 40, 50]
+
+    if i > delays[0]:
+        other_task(i - delays[0], online_data, online_size, RTE, 11.3)
+    if i > delays[1]:
+        other_task(i - delays[1], online_data, online_size, SEG, 16.3)
+    if i > delays[2]:
+        other_task(i - delays[2], online_data, online_size, VGG, 21.3)
+    if i > delays[3]:
+        other_task(i - delays[3], online_data, online_size, MLP, 26.3)
 
     for noise_type, scatter_noise in zip(types, noise_scatters):
         scatter_noise.set_offsets(online_data[noise_type])
