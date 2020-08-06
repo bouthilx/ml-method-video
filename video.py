@@ -128,6 +128,20 @@ worst_text = plt.text(
     0, 0, 'Worst', fontsize=20, horizontalalignment='center',
     verticalalignment='center',)
 
+common_belief = """
+Common Belief
+
+Best and worst weight inits 
+will lead to significantly 
+different generalization 
+performances on average.
+"""
+
+belief_text = plt.text(
+    5, 0.5, common_belief, fontsize=20, horizontalalignment='left',
+    verticalalignment='center',)
+
+
 bootstrap_text = plt.text(
     0, 0, 'Bootstrap',
     fontsize=30, horizontalalignment='right',
@@ -196,25 +210,68 @@ legends = [plt.text(-1, -1, model, fontsize=50,
 
 
 title = plt.text(
-    0.5, 0.6,
+    0.5, 0.7,
     ('Simulated Hyperparameter Optimization\n'
      'for Statistical Tests in Machine Learning Benchmarks'),
     fontsize=30, horizontalalignment='center', transform=plt.gcf().transFigure,
     verticalalignment='center')
 
+
+"""
+\author[1,2]{Xavier~Bouthillier}
+\author[3]{Pierre~Delaunay}
+\author[2]{Mirko~Bronzi}
+\author[1,2,4]{Assya~Trofimov}
+\author[2,5]{Brennan~Nichyporuk}
+\author[2,5]{Justin~Szeto}
+\author[2,5]{Naz~Sepah}
+\author[6,7]{Edward~Raff }
+\author[1,2]{Kanika~Madan}
+\author[2,8]{Vikram~Voleti}
+\author[2,5]{Samira Ebrahimi~Kahou}
+\author[1,2]{Vincent~Michalski}
+\author[1,2]{Dmitriy~Serdyuk}
+\author[2,5]{Tal~Arbel}
+\author[2,5,9,10]{Christopher~Pal}
+\author[2,5,11]{Gaël~Varoquaux}
+\author[1,2,10,12]{Pascal~Vincent}
+\affil[1]{Université de Montréal}
+\affil[2]{Mila }
+\affil[3]{Independant}
+\affil[4]{IRIC}
+\affil[5]{McGill University}
+\affil[6]{Booz Allen Hamilton}
+\affil[7]{University of Maryland, Baltimore County}
+\affil[8]{Polytechnique}
+\affil[9]{CIFAR}
+\affil[10]{ElementAI}
+\affil[11]{Inria}
+\affil[12]{FAIR}
+"""
+
 authors = """
-Xavier Bouthillier, Pierre Delaunay, Mirko Bronzi, Assya Trofimov,
-Brennan Nichyporuk, Justin Szeto, Naz Sepah,
-Edward Raff, Kanika Madan, Vikram Voleti,
-Samira Ebrahimi Kahou, Vincent Michalski, Dmitriy Serdyuk,
-Tal Arbel, Christopher Pal, Gaël Varoquaux, Pascal Vincent"""
+Xavier Bouthillier$^{1,2}$, Pierre Delaunay$^3$, Mirko Bronzi$^2$, Assya Trofimov$^{1,2,4}$,
+Brennan Nichyporuk$^{2,5}$, Justin Szeto$^{2,5}$, Naz Sepah$^{2,5}$,
+Edward Raff$^{6,7}$, Kanika Madan$^{1,2}$, Vikram Voleti$^{2,8}$,
+Samira Ebrahimi Kahou$^{2,5}$, Vincent Michalski$^{1,2}$, Dmitriy Serdyuk$^{1,2}$,
+Tal Arbel$^{2,5}$, Christopher Pal$^{2,5,9,10}$, Gaël Varoquaux$^{2,5,11}$, Pascal Vincent$^{1,2,10,12}$"""
+
+affiliations = """
+$^1$Université de Montréal, $^2$Mila, $^3$Independant, $^4$IRIC, $^5$McGill University, $^6$Booz Allen Hamilton,
+$^7$University of Maryland, Baltimore County, $^8$Polytechnique, $^9$CIFAR, $^{10}$Element AI, $^{11}$Inria, $^{12}$FAIR
+"""
 
 authors_text = plt.text(
-    0.5, 0.4,
+    0.5, 0.45,
     authors,
-    fontsize=15, horizontalalignment='center', transform=plt.gcf().transFigure,
+    fontsize=16, horizontalalignment='center', transform=plt.gcf().transFigure,
     verticalalignment='center')
 
+affiliations_text = plt.text(
+    0.5, 0.2,
+    affiliations,
+    fontsize=12, horizontalalignment='center', transform=plt.gcf().transFigure,
+    verticalalignment='center')
 
 
 black_patch = patches.Rectangle((0, 0), 0, 0, fill=True, color='black')
@@ -231,6 +288,7 @@ def cover(i):
         black_patch.set_height(5)
         title.set_position((-1, -1))
         authors_text.set_position((-1, -1))
+        affiliations_text.set_position((-1, -1))
 
 
 def typical_benchmark(i):
@@ -657,7 +715,7 @@ def other_task(i, online_data, online_size, task, x):
     # TODO: Place labels correctly
     task_texts[task].set_position((x / VARIANCE_REDUCE + 1, translate(1, 0.9, i, 50)))
 
-
+inits_center = 2.2
 def inits(i):
 
     var_x = 0.05
@@ -709,7 +767,7 @@ def inits(i):
         # data_i = data_vars[types.index('weights_init'), task, :N_POINTS]
         data[task * N_POINTS:(task + 1) * N_POINTS, 0] = translate(
             data_original_i[:, 0],
-            (2.5 + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE),
+            (inits_center + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE),
             i, 100)
         data[task * N_POINTS:(task + 1) * N_POINTS, 1] = translate(
             data_original_i[:, 1],
@@ -718,6 +776,8 @@ def inits(i):
         # data[] = data_i
     scatter_alpha.set_offsets(data)
     scatter_alpha.set_sizes([100 for _ in range(N_POINTS * 2)])
+
+    belief_text.set_position((translate(5, 3.1, i, 100), 0.5))
 
 
 def init_selection(i):
@@ -731,15 +791,15 @@ def init_selection(i):
         for task in range(5):
             data_original_i = data_original[types.index('weights_init'), task, :N_POINTS]
             data_original_i[:, 0] = (
-                2.5 + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE)
+                inits_center + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE)
             data_original_i[:, 1] = task_ys[task] + data_original_i[:, 1] - data_original_i[:, 1].mean()
 
-    best_text.set_position((2, translate(1, 0.85, i, duration)))
+    best_text.set_position((-0.5 + inits_center, translate(1, 0.85, i, duration)))
 
     delay = 15
 
     if i > delay:
-        worst_text.set_position((3, translate(1, 0.85, i - delay, duration)))
+        worst_text.set_position((0.5 + inits_center, translate(1, 0.85, i - delay, duration)))
 
     def get_size(j, idx):
         if j == idx[0]:
