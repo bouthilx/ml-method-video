@@ -120,12 +120,18 @@ performance_text = plt.text(
     transform=plt.gcf().transFigure, fontsize=50, horizontalalignment='center',
     verticalalignment='center', rotation=90)
 
+best_text_position = (0.05, performance_position[1] + 0.25)
 best_text = plt.text(
-    0, 0, 'Best', fontsize=20, horizontalalignment='center',
+    -1, -1, 'Best ->',
+    transform=plt.gcf().transFigure, 
+    fontsize=20, horizontalalignment='center', rotation=90,
     verticalalignment='center',)
 
+worst_text_position = (0.05, performance_position[1] - 0.25)
 worst_text = plt.text(
-    0, 0, 'Worst', fontsize=20, horizontalalignment='center',
+    -1, -1, '<- Worst', 
+    transform=plt.gcf().transFigure, 
+    fontsize=20, horizontalalignment='center', rotation=90,
     verticalalignment='center',)
 
 common_belief = """
@@ -143,7 +149,7 @@ belief_text = plt.text(
 
 
 bootstrap_text = plt.text(
-    0, 0, 'Bootstrap',
+    0, 0, 'Data sampling',
     fontsize=30, horizontalalignment='right',
     verticalalignment='center')
 
@@ -296,6 +302,9 @@ def typical_benchmark(i):
     black_patch.set_height(0)
 
     performance_text.set_position(performance_position)
+    best_text.set_position(best_text_position)
+    worst_text.set_position(worst_text_position)
+
     algorithms_text.set_position(algorithms_positon)
 
     for model, legend in zip(MODELS, legends):
@@ -667,12 +676,24 @@ def typical_variance(i):
     # Rotate performances label
     # rotation = performance_text.get_rotation()
     performance_text.set_rotation(translate(90, 0, i, 50))
+    best_text.set_rotation(translate(90, 0, i, 50))
+    worst_text.set_rotation(translate(90, 0, i, 50))
     # position = performance_text.get_position()
     # performance_text.set_position((position[0] + 0.05, position[1] - 0.02))
     position = (
         translate(performance_position[0], 0.45, i, 50),
         translate(performance_position[1], 0.075, i, 50))
     performance_text.set_position(position)
+    position = (
+        translate(best_text_position[0], 0.45 - 0.25, i, 50),
+        translate(best_text_position[1], 0.075, i, 50))
+    best_text.set_position(position)
+    position = (
+        translate(worst_text_position[0], 0.45 + 0.25, i, 50),
+        translate(worst_text_position[1], 0.075, i, 50))
+    worst_text.set_position(position)
+    best_text.set_text('<- Best')
+    worst_text.set_text('Worst ->')
 
     position = (
         translate(0, noise_text_x, i, 50), noise_text_ys[0])
@@ -862,12 +883,12 @@ def init_selection(i):
                 inits_center + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE / 2.5)
             data_original_i[:, 1] = task_ys[task] + data_original_i[:, 1] - data_original_i[:, 1].mean()
 
-    best_text.set_position((-0.5 + inits_center, translate(1, 0.85, i, duration)))
+    # best_text.set_position((-0.5 + inits_center, translate(1, 0.85, i, duration)))
 
     delay = 15
 
-    if i > delay:
-        worst_text.set_position((0.5 + inits_center, translate(1, 0.85, i - delay, duration)))
+    # if i > delay:
+    #     worst_text.set_position((0.5 + inits_center, translate(1, 0.85, i - delay, duration)))
 
     def get_size(j, idx):
         if j == idx[0]:
@@ -889,6 +910,7 @@ def init_selection(i):
 def drop_selection(i):
     
     i += 15  # Otherwise the start is too slow
+    i = min(i, 75)
 
     data = numpy.zeros((N_POINTS * 5, 2))
     min_x = data_original[types.index('weights_init'), :, :N_POINTS, 0].min()
