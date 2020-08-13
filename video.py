@@ -339,21 +339,86 @@ task_ys = [
     0.50,
     0.35,
     0.2]
-vgg = [
-    0.0023054717521583286,
-    0.0035756520733986412,
-    0.002744239011092143,
-    0,
-    0.0022843520673959546,
-    0.0044826302194370705]
 
-bert_sst2 = [
+def normalize(data):
+    data = numpy.array(data)
+    return data / data.max()
+
+bert_sst2 = numpy.array([
     0.002344054700882457,
     0.007684901394424942,
     0.0030550343764080483,
     0.0031318425973985643,
     0.0030134882249386835,
-    0.003416461683823229]
+    0.003416461683823229])
+
+bert_rte = numpy.array([
+    0.02698042765396676,
+    0.03065957140128678, 
+    0.016432685985090543,
+    0.013886475279050828,
+    0.022089133583104853, 
+    0.019071834730117608])
+
+segmentation = numpy.array([
+    0.005112707058290076,
+    0.012707861420580065,
+    0.0035452443972458845, 
+    0,
+    0.007181016531841449,
+    0.002303471392478707])
+    # 0.0016047613674296823,  # Background noise
+
+vgg = numpy.array([
+    0.0023054717521583286,
+    0.0035756520733986412,
+    0.002744239011092143,
+    0,
+    0.0022843520673959546,
+    0.0044826302194370705])
+
+bio = numpy.array([
+    0.01677507919822131,
+    0.03075609838422315,
+    0,
+    0,
+    0.012599712304922458,
+    0.016308436481642236])
+
+bert_sst2_orig_max = 0.059751972942502785 / bert_sst2.max()
+bert_sst2_orig_min = 0.04847801578354005 / bert_sst2.max()
+bert_rte_orig_max = 0.4873646209386282 / bert_rte.max()
+bert_rte_orig_min = 0.3537906137184116 / bert_rte.max()
+segmentation_orig_max = 0.4770651484665711 / segmentation.max()
+segmentation_orig_min = 0.4510654777236369 / segmentation.max()
+vgg_orig_max = 0.10429999999999995 / vgg.max()
+vgg_orig_min = 0.09230000000000005 / vgg.max()
+bio_orig_max = 0.4239433551198257 / bio.max()
+bio_orig_min = 0.3249455337690631 / bio.max()
+bert_sst2_min = numpy.array((0.041431792559188274, 0.004452424544517728)) / bert_sst2.max()
+bert_sst2_max = numpy.array((0.04208004509582864, 0.0034564562681509564)) / bert_sst2.max()
+bert_rte_min = numpy.array((0.33305054151624547, 0.026723770325850018)) / bert_rte.max()
+bert_rte_max = numpy.array((0.3422382671480145, 0.025312748764917653)) / bert_rte.max()
+segmentation_min = numpy.array((0.4806149697941878, 0.012707750230713456)) / segmentation.max()
+segmentation_max = numpy.array((0.4800104548007626, 0.1086448395570776)) / segmentation.max()
+vgg_min = numpy.array((0.0929205, 0.007207862217745287)) / vgg.max()
+vgg_max = numpy.array((0.0925685, 0.01258189476986674)) / vgg.max()
+bio_min = numpy.array((0.3724060592737233, 0.03246163397400904)) / bio.max()
+bio_max = numpy.array((0.3690187308384774, 0.03294676162353777)) / bio.max()
+
+bert_sst2 = normalize(bert_sst2)
+bert_rte = normalize(bert_rte)
+segmentation = normalize(segmentation)
+vgg = normalize(vgg)
+bio = normalize(bio)
+
+mins = [bert_sst2_min, bert_rte_min, segmentation_min, vgg_min, bio_min]
+maxs = [bert_sst2_max, bert_rte_max, segmentation_max, vgg_max, bio_max]
+
+orig_mins = [bert_sst2_orig_min, bert_rte_orig_min, segmentation_orig_min, vgg_orig_min,
+             bio_orig_min]
+orig_maxs = [bert_sst2_orig_max, bert_rte_orig_max, segmentation_orig_max, vgg_orig_max,
+             bio_orig_max]
 
 DEMO_TASK = 0  # SST2
 SST2 = 0
@@ -361,21 +426,23 @@ RTE = 1
 SEG = 2
 VGG = 3
 MLP = 4
+SCALE = 1
 for noise_type in range(len(types)):
-    data_vars[noise_type, 0, :, 0] =  rng.normal(0, bert_sst2[noise_type] * 100, size=N_POINTS)
+    data_vars[noise_type, 0, :, 0] =  rng.normal(0, bert_sst2[noise_type], size=N_POINTS)
     data_vars[noise_type, 0, :, 1] =  rng.normal(0, 0.01, size=N_POINTS)
 
-    data_vars[noise_type, 1, :, 0] =  rng.normal(0, bert_sst2[noise_type] * 100, size=N_POINTS)
+    data_vars[noise_type, 1, :, 0] =  rng.normal(0, bert_rte[noise_type], size=N_POINTS)
     data_vars[noise_type, 1, :, 1] =  rng.normal(0, 0.01, size=N_POINTS)
 
-    data_vars[noise_type, 2, :, 0] =  rng.normal(0, bert_sst2[noise_type] * 100, size=N_POINTS)
+    data_vars[noise_type, 2, :, 0] =  rng.normal(0, segmentation[noise_type], size=N_POINTS)
     data_vars[noise_type, 2, :, 1] =  rng.normal(0, 0.01, size=N_POINTS)
 
-    data_vars[noise_type, 3, :, 0] =  rng.normal(0, vgg[noise_type] * 100, size=N_POINTS)
+    data_vars[noise_type, 3, :, 0] =  rng.normal(0, vgg[noise_type], size=N_POINTS)
     data_vars[noise_type, 3, :, 1] =  rng.normal(0, 0.01, size=N_POINTS)
 
-    data_vars[noise_type, 4, :, 0] =  rng.normal(0, bert_sst2[noise_type] * 100, size=N_POINTS)
+    data_vars[noise_type, 4, :, 0] =  rng.normal(0, bio[noise_type], size=N_POINTS)
     data_vars[noise_type, 4, :, 1] =  rng.normal(0, 0.01, size=N_POINTS)
+
 
 data_original = copy.deepcopy(data_vars)
 
@@ -703,14 +770,15 @@ def other_task(i, online_data, online_size, task, x):
     for noise_type, y in zip(types, noise_ys):
         data_i = data_vars[types.index(noise_type), task, :(i + 1) * N_POINTS // duration]
         data_i = copy.deepcopy(data_i)
-        data_i[:, 0] += x
-        data_i[:, 1] /= 5
-        data_i[:, 1] += y
-        data_i[:, 0] /= VARIANCE_REDUCE
-        data_i[:, 0] += 1
-        online_data[noise_type] = numpy.concatenate([online_data[noise_type], data_i], axis=0)
-        sizes = numpy.ones(data_i.shape[0]) * translate(300, 100, i, 50)
-        online_size[noise_type] = numpy.concatenate([online_size[noise_type], sizes], axis=0)
+        if not (data_i[:, 0] == 0).all():
+            data_i[:, 0] += x
+            data_i[:, 1] /= 5
+            data_i[:, 1] += y
+            data_i[:, 0] /= VARIANCE_REDUCE
+            data_i[:, 0] += 1
+            online_data[noise_type] = numpy.concatenate([online_data[noise_type], data_i], axis=0)
+            sizes = numpy.ones(data_i.shape[0]) * translate(300, 100, i, 50)
+            online_size[noise_type] = numpy.concatenate([online_size[noise_type], sizes], axis=0)
 
     # TODO: Place labels correctly
     task_texts[task].set_position((x / VARIANCE_REDUCE + 1, translate(1, 0.9, i, 50)))
@@ -767,7 +835,7 @@ def inits(i):
         # data_i = data_vars[types.index('weights_init'), task, :N_POINTS]
         data[task * N_POINTS:(task + 1) * N_POINTS, 0] = translate(
             data_original_i[:, 0],
-            (inits_center + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE),
+            (inits_center + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE / 2.5),
             i, 100)
         data[task * N_POINTS:(task + 1) * N_POINTS, 1] = translate(
             data_original_i[:, 1],
@@ -791,7 +859,7 @@ def init_selection(i):
         for task in range(5):
             data_original_i = data_original[types.index('weights_init'), task, :N_POINTS]
             data_original_i[:, 0] = (
-                inits_center + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE)
+                inits_center + (data_original_i[:, 0] - data_original_i[:, 0].mean()) * VARIANCE_REDUCE / 2.5)
             data_original_i[:, 1] = task_ys[task] + data_original_i[:, 1] - data_original_i[:, 1].mean()
 
     best_text.set_position((-0.5 + inits_center, translate(1, 0.85, i, duration)))
@@ -849,23 +917,23 @@ def assumed_diff(i):
     if (i + 1) * n_points > N_POINTS:
         return
 
-    def sample(task, task_extremum, original, memory, data_buffer):
+    def sample(task, task_extremum, task_var, original, memory, data_buffer):
         # TODO: Take actual variance of the task (global variance, not only weights init)
+        print(task_var, 0.2)
         memory[i * n_points:(i + 1) * n_points, task, 0] = rng.normal(
-            task_extremum, 0.2, size=n_points)
+            task_extremum, task_var / 2, size=n_points)
 
         memory[i * n_points:(i + 1) * n_points, task, 1] = rng.normal(
             task_ys[task], 0.005, size=n_points)
 
         data_buffer[task * (i + 1) * n_points: (task + 1) * (i + 1) * n_points] = memory[:(i + 1) * n_points, task]
 
-
     for task in range(5):
         data_original_i = data_original[types.index('weights_init'), task, :N_POINTS]
         task_min_x = data_original_i[:, 0].min()
         task_max_x = data_original_i[:, 0].max()
-        sample(task, task_min_x, data_original_i, assumed_data_min, data_min)
-        sample(task, task_max_x, data_original_i, assumed_data_max, data_max)
+        sample(task, task_min_x, mins[task][1], data_original_i, assumed_data_min, data_min)
+        sample(task, task_max_x, maxs[task][1], data_original_i, assumed_data_max, data_max)
 
     scatter_min_diff.set_offsets(data_min)
     scatter_min_diff.set_sizes([100 for i in range(data_min.shape[0])])
@@ -907,15 +975,25 @@ def results(i):
         data_original_i = data_original[types.index('weights_init'), task, :N_POINTS]
         task_min_x = data_original_i[:, 0].min()
         task_max_x = data_original_i[:, 0].max()
-        delta = (task_max_x - task_min_x) / 2
+        # delta = (task_max_x - task_min_x) / 2
+        delta = (task_max_x - task_min_x)
+        orig_delta = (orig_maxs[task] - orig_mins[task])
+        min_p = (mins[task][0] - orig_mins[task]) / orig_delta
+        min_x = min_p * delta
+        print(min_x, (delta / 2))
+        max_p = (orig_maxs[task] - maxs[task][0]) / orig_delta
+        max_x = max_p * delta
+        print(max_x, (delta / 2))
         data_min[task * N_POINTS:(task + 1) * N_POINTS, 0] = translate(
-            assumed_data_min[:, task, 0] + delta / 2,
-            assumed_data_min[:, task, 0] + delta,
+            assumed_data_min[:, task, 0],  # + delta / 2,
+            assumed_data_min[:, task, 0] + min_x ,
+            # assumed_data_min[:, task, 0] + delta,
             i, 50)
         data_min[task * N_POINTS:(task + 1) * N_POINTS, 1] = assumed_data_min[:, task, 1]
         data_max[task * N_POINTS:(task + 1) * N_POINTS, 0] = translate(
-            assumed_data_max[:, task, 0] - delta / 2,
-            assumed_data_max[:, task, 0] - delta,
+            assumed_data_max[:, task, 0],  # - delta / 2,
+            assumed_data_max[:, task, 0] - max_x,
+            # assumed_data_max[:, task, 0] - delta,
             i, 50)
         data_max[task * N_POINTS:(task + 1) * N_POINTS, 1] = assumed_data_max[:, task, 1]
         
