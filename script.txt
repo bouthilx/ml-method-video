@@ -1,0 +1,24 @@
+Machine learning algorithms are typically compared using a single performance measure.
+
+But this measure is not deterministic, there is inherent noise.
+
+With such comparison, conclusions can vary widely from one experiment... to another.
+
+The source of noise most often considered is the initializations of the weights in neural networks.
+But there is many more sources, such at the noise coming from the data
+sampling,
+the data order, dropout, or even hyperparameter optimization.
+
+We have observed that weights initiliazation is far from being the most important source of
+noise in many diverse tasks. To provide more robust comparisons,
+we propose a simulation method to cheaply measure variance encompassing all theses sources of noise .
+
+As an example, we used our simulation method to 
+to verify a common belief.
+
+For each task, we selected the best and worst initializations in a pool of 200,
+and then trained again but this time varying all other sources of noise.
+We could assume that the resulting distributions would be far from each other...
+but they are actually indiscernible.
+
+Please come see our poster to learn more about our method and our results.
