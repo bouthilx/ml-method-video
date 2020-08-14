@@ -233,7 +233,7 @@ title = plt.text(
 \author[2,5]{Naz~Sepah}
 \author[6,7]{Edward~Raff }
 \author[1,2]{Kanika~Madan}
-\author[2,8]{Vikram~Voleti}
+\author[1,2]{Vikram~Voleti}
 \author[2,5]{Samira Ebrahimi~Kahou}
 \author[1,2]{Vincent~Michalski}
 \author[1,2]{Dmitriy~Serdyuk}
@@ -258,7 +258,7 @@ title = plt.text(
 authors = """
 Xavier Bouthillier$^{1,2}$, Pierre Delaunay$^3$, Mirko Bronzi$^2$, Assya Trofimov$^{1,2,4}$,
 Brennan Nichyporuk$^{2,5}$, Justin Szeto$^{2,5}$, Naz Sepah$^{2,5}$,
-Edward Raff$^{6,7}$, Kanika Madan$^{1,2}$, Vikram Voleti$^{2,8}$,
+Edward Raff$^{6,7}$, Kanika Madan$^{1,2}$, Vikram Voleti$^{1,2}$,
 Samira Ebrahimi Kahou$^{2,5}$, Vincent Michalski$^{1,2}$, Dmitriy Serdyuk$^{1,2}$,
 Tal Arbel$^{2,5}$, Christopher Pal$^{2,5,9,10}$, Gaël Varoquaux$^{2,5,11}$, Pascal Vincent$^{1,2,10,12}$"""
 
