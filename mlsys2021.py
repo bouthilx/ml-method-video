@@ -13,9 +13,9 @@ from matplotlib.animation import FuncAnimation
 from tqdm import tqdm
 
 
-from moustachos import adjust_moustachos, moustachos
+from moustachos import adjust_moustachos, moustachos, h_moustachos, adjust_h_moustachos
 from rained_histogram import rained_histogram, rain_std
-from utils import translate, linear
+from utils import translate, linear, ZOrder, despine
 from paperswithcode import PapersWithCodePlot, cum_argmax
 from variances import VariancesPlot
 from estimator_bubbles import EstimatorBubbles
@@ -24,6 +24,9 @@ from estimators import COLORS as EST_COLORS
 
 END = 10
 FPS = 30
+
+
+zorder = ZOrder()
 
 
 N_INTRO = 25
@@ -83,7 +86,7 @@ class Animation:
         self.ax = plt.axes(xlim=(0.5, 4.5), ylim=(0, 1), label="main")
         # self.ax.plot([0.6, 4], [0.1, 0.8])
         plt.gca().set_position([0, 0, 1, 1])
-        self.scatter = self.ax.scatter([], [], alpha=1, zorder=5)
+        self.scatter = self.ax.scatter([], [], alpha=1, zorder=zorder())
         self.initialized = False
 
     def initialize(self):
@@ -204,7 +207,7 @@ class PapersWithCode:
         self.new_y = paperswithcode.data[self.key][:, 1]
         self.p = self.new_y
         self.scatter = ax.scatter(
-            self.x, self.p, numpy.ones(len(self.p)) * 15, zorder=5
+            self.x, self.p, numpy.ones(len(self.p)) * 15, zorder=zorder.get()
         )
         cum_x, cum_y = cum_argmax(self.x, self.p)
         self.line = ax.plot(cum_x, cum_y)[0]
@@ -324,7 +327,9 @@ class VarianceLabel:
         if self.initialized:
             return
 
-        self.label = ax.text(2019, 99, "", va="top", ha="left", fontsize=32, zorder=10)
+        self.label = ax.text(
+            2019, 99, "", va="top", ha="left", fontsize=32, zorder=zorder(2)
+        )
 
         self.annotation = ax.annotate(
             "",
@@ -346,7 +351,7 @@ class VarianceLabel:
             horizontalalignment="left",
             verticalalignment="top",
             fontsize=32,
-            zorder=10,
+            zorder=zorder.get(),
         )
 
         self.moustacho = moustachos(
@@ -364,7 +369,7 @@ class VarianceLabel:
             5,
             fill=True,
             color="white",
-            zorder=7,
+            zorder=zorder.get() - 1,
             alpha=0.75,
         )
         ax.add_patch(self.white_patch)
@@ -425,7 +430,9 @@ class EstimatorLabel:
         if self.initialized:
             return
 
-        self.label = ax.text(2019, 92, "", va="top", ha="left", fontsize=32, zorder=10)
+        self.label = ax.text(
+            2019, 92, "", va="top", ha="left", fontsize=32, zorder=zorder.get()
+        )
 
         d_h_center = 2016.54  # 2016.625
         d_v_center = 90
@@ -458,7 +465,7 @@ class EstimatorLabel:
             horizontalalignment="left",
             verticalalignment="top",
             fontsize=32,
-            zorder=10,
+            zorder=zorder.get(),
         )
 
         self.white_patch = patches.Rectangle(
@@ -467,7 +474,7 @@ class EstimatorLabel:
             5,
             fill=True,
             color="white",
-            zorder=7,
+            zorder=zorder.get() - 1,
             alpha=0.75,
         )
 
@@ -534,7 +541,7 @@ class ComparisonLabel:
             return
 
         self.label = ax.text(
-            2019, 84.5, "", va="top", ha="left", fontsize=32, zorder=10
+            2019, 84.5, "", va="top", ha="left", fontsize=32, zorder=zorder.get()
         )
 
         d_h_center = 2016.9
@@ -565,7 +572,7 @@ class ComparisonLabel:
             horizontalalignment="left",
             verticalalignment="top",
             fontsize=32,
-            zorder=10,
+            zorder=zorder.get(),
         )
 
         self.moustacho = moustachos(
@@ -583,7 +590,7 @@ class ComparisonLabel:
             5,
             fill=True,
             color="white",
-            zorder=7,
+            zorder=zorder.get() - 1,
             alpha=0.75,
         )
         ax.add_patch(self.white_patch)
@@ -812,7 +819,7 @@ class Variances:
                     variances_colors(self.label_colors[label])
                     for label in self.label_order
                 ],
-                zorder=30,
+                zorder=zorder(),
             )
 
             self.bar_axes[key].set_xlim((0, self._get_max_std(key) * 1.05))
@@ -1033,7 +1040,7 @@ class VarianceSum:
                 for label in self.labels
             ],
             clip_on=False,
-            zorder=20,
+            zorder=zorder.get(),
         )
 
         base = self.variances.bars["vgg"][self.get_label_index(self.base)]
@@ -1149,7 +1156,7 @@ class VariancesHighlight:
                 fill=True,
                 color="black",
                 alpha=0.5,
-                zorder=20,
+                zorder=zorder.get(),
                 transform=fig.transFigure,
                 linewidth=0,
             )
@@ -1213,7 +1220,7 @@ class NormalHighlight:
                 fill=True,
                 color="black",
                 alpha=0.3,
-                zorder=20,
+                zorder=zorder.get(),
                 transform=fig.transFigure,
                 linewidth=0,
             )
@@ -1339,8 +1346,6 @@ class VariancesFlushHist:
         (_, y) = self.variances.standard_deviation_label.get_position()
         new_x = translate(self.old_std_x, x, i, self.n_frames, saturation=3)
         self.variances.standard_deviation_label.set_position((new_x, y))
-        # TODO
-        print("IS THE STD LABEL OK NOW?")
 
     def clear(self):
         self(self.n_frames, None, None, None)
@@ -1490,7 +1495,9 @@ class Algorithms:
             return
 
         fig.clear()
-        # fig.add_axes(ax)
+        # Use a specific ax for comments otherwise text are in cmap='grey' and the rendering is
+        # terrible.
+        self.comment_ax = fig.add_axes([0, 0, 0, 0], zorder=zorder())
         self.ideal_ax = fig.add_axes([0.15, 0.15, 0.4, 0.8])
         self.ideal_img = mpimg.imread("algorithms_ideal.png")
         self.ideal_ax.imshow(self.ideal_img, cmap="gray")
@@ -1498,8 +1505,6 @@ class Algorithms:
         self.biased_ax = fig.add_axes([1.2, 0.125, 0.4, 0.82])
         self.biased_img = mpimg.imread("algorithms_biased.png")
         self.biased_ax.imshow(self.biased_img, cmap="gray")
-
-        self.ax = self.ideal_ax
 
         for axis in [self.ideal_ax, self.biased_ax]:
             for side in ["top", "right", "bottom", "left"]:
@@ -1514,7 +1519,7 @@ class Algorithms:
             fill=True,
             color="black",
             alpha=0.6,
-            zorder=30,
+            zorder=zorder(),
             transform=fig.transFigure,
             linewidth=0,
         )
@@ -1526,7 +1531,7 @@ class Algorithms:
             fill=True,
             color="black",
             alpha=0.6,
-            zorder=30,
+            zorder=zorder.get(),
             transform=fig.transFigure,
             linewidth=0,
         )
@@ -1563,7 +1568,7 @@ class CodeHighlight:
         if self.initialized:
             return
 
-        self.ax = last_animation.ax
+        self.comment_ax = last_animation.comment_ax
         self.top_white_box = last_animation.top_white_box
         self.bottom_white_box = last_animation.bottom_white_box
 
@@ -1592,7 +1597,7 @@ class CodeHighlight:
         self.bottom_white_box.set_xy((0, bbox.y1 - new_gap))
 
         if self.comment and i > self.n_frames / 10:
-            self.ax.text(
+            self.comment_ax.text(
                 self.comment_x,
                 bbox.y1 - new_gap + self.padding,
                 self.comment,
@@ -1600,7 +1605,7 @@ class CodeHighlight:
                 ha="right" if self.comment_side == "left" else "left",
                 fontsize=24,
                 transform=fig.transFigure,
-                zorder=40,
+                zorder=zorder.get(),
             )
 
     def clear(self):
@@ -1620,7 +1625,7 @@ class BringInBiasedEstimator:
         self.old_x = self.algorithms.biased_ax.get_position().x0
 
         # To provide for the next CodeHighlight
-        self.ax = last_animation.ax
+        self.comment_ax = last_animation.comment_ax
         self.top_white_box = last_animation.top_white_box
         self.bottom_white_box = last_animation.bottom_white_box
 
@@ -1654,19 +1659,19 @@ class SimpleLinearScale:
         # TODO: Create new rectangles
         # For any label not in self.noise_types:
         self.white_box = patches.Rectangle(
-            (0.2, 0),
-            0.6,
+            (0.15, 0),
+            1,
             0,
             fill=True,
             color="white",
             alpha=1,
-            zorder=15,
+            zorder=zorder(),
             transform=fig.transFigure,
             linewidth=0,
         )
         fig.patches.append(self.white_box)
 
-        self.simple_curve_ax = fig.add_axes([0.3, 0.2, 0.4, 0], zorder=20)
+        self.simple_curve_ax = fig.add_axes([0.3, 0.2, 0.4, 0], zorder=zorder())
         self.ideal_curve = self.simple_curve_ax.plot(
             [],
             [],
@@ -1800,11 +1805,11 @@ class VarianceEquations:
         if self.initialized:
             return
 
-        self.ideal_ax = fig.add_axes([0.26, 0.625, 0.2, 0.1], zorder=30)
+        self.ideal_ax = fig.add_axes([0.26, 0.625, 0.2, 0.1], zorder=zorder())
         self.ideal_img = mpimg.imread("ideal_var.png")
         self.ideal_ax.imshow(self.ideal_img, cmap="gray")
 
-        self.biased_ax = fig.add_axes([0.53, 0.53, 0.42, 0.3], zorder=30)
+        self.biased_ax = fig.add_axes([0.53, 0.53, 0.42, 0.3], zorder=zorder.get())
         self.biased_img = mpimg.imread("biased_var.png")
         self.biased_ax.imshow(self.biased_img, cmap="gray")
 
@@ -1838,8 +1843,10 @@ class EstimatorSimulation:
             return
 
         self.axes = {}
-        self.axes["left"] = fig.add_axes([0.235, 0.025, 0.23, 0.5], zorder=40)
-        self.axes["right"] = fig.add_axes([0.535, 0.025, 0.23, 0.5], zorder=40)
+        self.axes["left"] = fig.add_axes([0.235, 0.025, 0.23, 0.5], zorder=zorder())
+        self.axes["right"] = fig.add_axes(
+            [0.535, 0.025, 0.23, 0.5], zorder=zorder.get()
+        )
 
         for ax in self.axes.values():
             ax.set_xlim((-5, 5))
@@ -1967,7 +1974,7 @@ class EstimatorTask:
 
         self.estimators = EstimatorsPlot()
         self.estimators.load()
-        self.ax = fig.add_axes([1, 0.575, 0.4, 0.2], zorder=60)
+        self.ax = fig.add_axes([1, 0.575, 0.4, 0.2], zorder=zorder(2))
         self.ax.set_xlim((0, self.max_budgets))
         max_y = []
         for source in ["Init", "Data", "All"]:
@@ -2020,7 +2027,7 @@ class EstimatorTask:
             fill=True,
             color="white",
             alpha=1,
-            zorder=55,
+            zorder=zorder.get() - 1,
             transform=fig.transFigure,
             linewidth=0,
         )
@@ -2101,6 +2108,216 @@ class EstimatorShow:
         self(self.n_frames, None, None, None)
         if self.estimator != "IdealEst($k$)":
             self.estimators.estimators["right"].estimator = self.estimator
+
+
+class ComparisonMethod:
+    def __init__(self, n_frames, method, x_padding):
+        self.n_frames = n_frames
+        self.method = method
+        self.x_padding = x_padding
+        self.initialized = False
+        self.models = []
+        self.width = 0.4
+        self.xlim = (-10, 10)
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        if self.method == "Average":
+            fig.clear()
+
+        self.ax = fig.add_axes([self.x_padding, 0.5, self.width, 0.2], zorder=zorder())
+        self.ax.text(
+            self.x_padding + self.width / 2,
+            0.8,
+            self.method,
+            ha="center",
+            transform=fig.transFigure,
+            fontsize=32,
+        )
+
+        despine(self.ax)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def clear(self):
+        pass
+
+
+class AddModel:
+    def __init__(self, n_frames, comparison, name, mean=-1, std=1):
+        self.n_frames = n_frames
+        self.comparison = comparison
+        self.name = name
+        self.mean = mean
+        self.std = std
+        self.comparison.models.append(self)
+        self.initialized = False
+
+    def redraw(self):
+        x = numpy.linspace(-10, 10, 100)
+        y = scipy.stats.norm.pdf(x, self.mean, self.std)
+        y /= self.max_y
+        self.y = y
+        self.line.set_ydata(y)
+        self.name_label.set_position((self.mean, max(self.y)))
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        x = numpy.linspace(-10, 10, 100)
+        y = scipy.stats.norm.pdf(x, self.mean, self.std)
+        self.max_y = max(y)
+        y /= self.max_y
+        self.y = y
+        self.line = self.comparison.ax.plot(x, y)[0]
+
+        self.name_label = self.comparison.ax.text(
+            self.mean, -1, self.name, ha="center", va="bottom", fontsize=16
+        )
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        scale = translate(0, 1, i, self.n_frames)
+        self.line.set_ydata(self.y * scale)
+        self.name_label.set_position((self.mean, max(self.y) * scale))
+
+    def clear(self):
+        self(self.n_frames, None, None, None)
+
+
+class ComputeAverages:
+    def __init__(self, n_frames, comparison):
+        self.n_frames = n_frames
+        self.comparison = comparison
+        self.comparison.method_object = self
+        self.initialized = False
+        self.whisker_width = 0.2
+
+    def redraw(self):
+        A, B = self.comparison.models
+        diff = B.mean - A.mean
+
+        adjust_h_moustachos(
+            self.comparison.avg_plot,
+            x=A.mean + diff / 2,
+            y=0,
+            whisker_width=self.whisker_width,
+            whisker_length=diff / 2,
+            center_width=0,
+        )
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+        self.comparison.avg_axe = fig.add_axes(
+            [self.comparison.x_padding, 0.35, self.comparison.width, 0.2]
+        )
+        despine(self.comparison.avg_axe)
+        self.comparison.avg_axe.set_xlim(self.comparison.xlim)
+        self.comparison.avg_axe.set_ylim((-1, 1))
+        A, B = self.comparison.models
+        diff = B.mean - A.mean
+        self.comparison.avg_plot = h_moustachos(
+            self.comparison.avg_axe,
+            x=A.mean + diff / 2,
+            y=0,
+            whisker_width=self.whisker_width * 0.01,
+            whisker_length=diff / 2 * 0.01,
+            center_width=0,
+        )
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        A, B = self.comparison.models
+        diff = B.mean - A.mean
+
+        adjust_h_moustachos(
+            self.comparison.avg_plot,
+            x=A.mean + diff / 2,
+            y=0,
+            whisker_width=translate(
+                self.whisker_width * 0.01,
+                self.whisker_width,
+                i,
+                self.n_frames / 10,
+                saturation=5,
+            ),
+            whisker_length=translate(
+                diff / 2 * 0.01,
+                diff / 2,
+                i,
+                self.n_frames / 10,
+                saturation=5,
+            ),
+            center_width=0,
+        )
+
+    def clear(self):
+        pass
+
+
+class ChangeDists:
+    def __init__(self, n_frames, comparisons, foo):
+        self.n_frames = n_frames
+        self.comparisons = comparisons
+        self.foo = foo
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.old = {}
+        for comparison in self.comparisons:
+            self.old[comparison.method] = {}
+            for model in comparison.models:
+                self.old[comparison.method][model.name] = {
+                    "mean": model.mean,
+                    "std": model.std,
+                }
+
+        self.new = {}
+        for comparison in self.comparisons:
+            new_models = self.foo(*comparison.models)
+            self.new[comparison.method] = {}
+            for i, model in enumerate(comparison.models):
+                self.new[comparison.method][model.name] = {
+                    "mean": new_models["mean"][i],
+                    "std": new_models["std"][i],
+                }
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        for comparison in self.comparisons:
+            for j, model in enumerate(comparison.models):
+                ith_stats = {}
+                for stat in ["mean", "std"]:
+                    ith_stats[stat] = linear(
+                        self.old[comparison.method][model.name][stat],
+                        self.new[comparison.method][model.name][stat],
+                        i,
+                        self.n_frames,
+                    )
+
+                model.mean = ith_stats["mean"]
+                model.std = ith_stats["std"]
+                model.redraw()
+
+            # TODO: Support for PAB
+            if comparison.method == "Average":
+                comparison.method_object.redraw()
+
+    def clear(self):
+        self(self.n_frames, None, None, None)
 
 
 class Template:
@@ -2205,6 +2422,8 @@ def main(argv=None):
     algorithms = Algorithms(FPS * 10)
     estimators = EstimatorSimulation()
     estimator_task = EstimatorTask(FPS * 2)
+    average_comparison = ComparisonMethod(FPS * 1, "Average", 0.1)
+    pab_comparison = ComparisonMethod(FPS * 1, "Probability of outperforming", 0.5)
 
     animate = Animation(
         [
@@ -2262,6 +2481,7 @@ def main(argv=None):
             VariancesHighlight(
                 FPS * 10, variances, ["init_seed", "random_search"], vbars=[]
             ),
+            # TODO: Add paperswithcode transition, showing estimation moustacho
             # 2. Estimator section
             # TODO: Come back to average estimator (average estimator and comparison)
             algorithms,
@@ -2313,8 +2533,36 @@ def main(argv=None):
             EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, Data)"),
             Still(FPS * 5),
             EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, All)"),
-            Still(FPS * 5),
+            Still(FPS * 10),
+            # TODO: Add paperswithcode transition, showing comparison moustachos
             # 3. Comparison section
+            average_comparison,
+            AddModel(FPS * 1, average_comparison, "A", mean=-1, std=1),
+            AddModel(FPS * 1, average_comparison, "B", mean=1, std=1),
+            ComputeAverages(FPS * 5, average_comparison),
+            pab_comparison,
+            AddModel(FPS * 1, pab_comparison, "A", mean=-1, std=1),
+            AddModel(FPS * 1, pab_comparison, "B", mean=1, std=1),
+            Still(FPS * 5),
+            # ComputePAB()
+        ]
+        + [
+            ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
+            for foo in [
+                lambda a, b: {"mean": (a.mean - 5, b.mean), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean, b.mean - 5), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean + 5, b.mean + 5), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean - 5, b.mean + 5), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean + 5, b.mean - 5), "std": (a.std, b.std)},
+            ]
+        ]
+        + [
+            Still(FPS * 5),
+            # ChangeVariances(FPS * 10),
+            # Simulations
+            # Add estimator bubble bottom left
+            # Add empty plot center
+            # Swipe dist example on Y axis to explain, explain at the same time the grey regions
             # 4. Summary with stat test example
         ],
         width,
