@@ -21,9 +21,10 @@ from variances import VariancesPlot
 from estimator_bubbles import EstimatorBubbles
 from estimators import EstimatorsPlot, LABELS
 from estimators import COLORS as EST_COLORS
+from simulations import pab, percentile_bootstrap, normal_ci
 
 END = 10
-FPS = 30
+FPS = 60
 
 
 zorder = ZOrder()
@@ -1249,8 +1250,6 @@ class NormalHighlight:
                 saturation=10,
             )
 
-        print(i, new_height)
-
         # TODO: Slides the rectangles very fast ->
         for rectangle in self.grey_patches.values():
             rectangle.set_height(new_height)
@@ -2159,9 +2158,9 @@ class AddModel:
         self.initialized = False
 
     def redraw(self):
-        x = numpy.linspace(-10, 10, 100)
+        x = numpy.linspace(-10, 10, 1000)
         y = scipy.stats.norm.pdf(x, self.mean, self.std)
-        y /= self.max_y
+        y /= max(self.max_y, max(y))
         self.y = y
         self.line.set_ydata(y)
         self.name_label.set_position((self.mean, max(self.y)))
@@ -2170,10 +2169,10 @@ class AddModel:
         if self.initialized:
             return
 
-        x = numpy.linspace(-10, 10, 100)
+        x = numpy.linspace(-10, 10, 1000)
         y = scipy.stats.norm.pdf(x, self.mean, self.std)
         self.max_y = max(y)
-        y /= self.max_y
+        y /= max(self.max_y, max(y))
         self.y = y
         self.line = self.comparison.ax.plot(x, y)[0]
 
@@ -2197,67 +2196,309 @@ class ComputeAverages:
         self.n_frames = n_frames
         self.comparison = comparison
         self.comparison.method_object = self
+        self.delta = 2
         self.initialized = False
         self.whisker_width = 0.2
+        self.delta_padding = 0.2
 
     def redraw(self):
         A, B = self.comparison.models
-        diff = B.mean - A.mean
+        diff = A.mean - B.mean
 
         adjust_h_moustachos(
             self.comparison.avg_plot,
-            x=A.mean + diff / 2,
+            x=B.mean + diff / 2,
             y=0,
             whisker_width=self.whisker_width,
             whisker_length=diff / 2,
             center_width=0,
         )
 
+        adjust_h_moustachos(
+            self.delta_plot,
+            x=B.mean + self.delta / 2,
+            y=-1,
+            whisker_width=self.whisker_width,
+            whisker_length=self.delta / 2,
+            center_width=0,
+        )
+
+        self.delta_label.set_position((B.mean - self.delta_padding, -1))
+
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
         self.comparison.avg_axe = fig.add_axes(
-            [self.comparison.x_padding, 0.35, self.comparison.width, 0.2]
+            [self.comparison.x_padding, 0.35, self.comparison.width, 0.1],
+            zorder=zorder(),
         )
         despine(self.comparison.avg_axe)
         self.comparison.avg_axe.set_xlim(self.comparison.xlim)
         self.comparison.avg_axe.set_ylim((-1, 1))
         A, B = self.comparison.models
-        diff = B.mean - A.mean
+        diff = A.mean - B.mean
         self.comparison.avg_plot = h_moustachos(
             self.comparison.avg_axe,
-            x=A.mean + diff / 2,
+            x=B.mean + diff / 2,
             y=0,
             whisker_width=self.whisker_width * 0.01,
             whisker_length=diff / 2 * 0.01,
             center_width=0,
+            clip_on=False,
+        )
+
+        self.delta_plot = h_moustachos(
+            self.comparison.avg_axe,
+            x=B.mean + self.delta / 2,
+            y=-1,
+            whisker_width=self.whisker_width * 0.0000001,
+            whisker_length=diff / 2 * 0.000001,
+            center_width=0,
+            clip_on=False,
+        )
+
+        self.delta_label = self.comparison.avg_axe.text(
+            B.mean - self.delta_padding, -1, "", ha="right", va="center", fontsize=16
         )
 
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
         A, B = self.comparison.models
-        diff = B.mean - A.mean
+        diff = A.mean - B.mean
+
+        whisker_width = translate(
+            self.whisker_width * 0.01,
+            self.whisker_width,
+            i,
+            self.n_frames / 10,
+            saturation=5,
+        )
+
+        if i > self.n_frames / 10:
+            y = translate(
+                2,
+                0,
+                i - self.n_frames / 10,
+                self.n_frames / 10,
+                saturation=5,
+            )
+        else:
+            y = 2
 
         adjust_h_moustachos(
             self.comparison.avg_plot,
-            x=A.mean + diff / 2,
-            y=0,
-            whisker_width=translate(
+            x=B.mean + diff / 2,
+            y=y,
+            whisker_width=whisker_width,
+            whisker_length=diff / 2,
+            center_width=0,
+        )
+
+        if i > self.n_frames / 10 * 3:
+            self.delta_label.set_text("$\delta$")
+            whisker_width = translate(
                 self.whisker_width * 0.01,
                 self.whisker_width,
-                i,
+                i - self.n_frames / 10 * 3,
                 self.n_frames / 10,
                 saturation=5,
-            ),
-            whisker_length=translate(
-                diff / 2 * 0.01,
-                diff / 2,
-                i,
-                self.n_frames / 10,
-                saturation=5,
-            ),
+            )
+        else:
+            whisker_width = 1e-10
+
+        if i > self.n_frames / 10 * 4:
+            whisker_length = translate(
+                0, self.delta / 2, i - self.n_frames / 10 * 4, self.n_frames
+            )
+            x = B.mean + whisker_length
+        else:
+            x = B.mean
+            whisker_length = 1e-10
+
+        adjust_h_moustachos(
+            self.delta_plot,
+            x=x,
+            y=-1,
+            whisker_width=whisker_width,
+            whisker_length=whisker_length,
             center_width=0,
+        )
+
+    def clear(self):
+        self(self.n_frames, None, None, None)
+
+
+class ComputePAB:
+    def __init__(self, n_frames, comparison):
+        self.n_frames = n_frames
+        self.comparison = comparison
+        self.comparison.method_object = self
+        self.initialized = False
+        self.whisker_width = 0.2
+        self.ax_width = 0.2
+
+    def redraw(self):
+        A, B = self.comparison.models
+        diff = B.mean - A.mean
+
+        lower, pab, upper = self.compute_pab()
+        adjust_h_moustachos(
+            self.comparison.pab_plot,
+            x=pab,
+            y=0,
+            whisker_width=self.whisker_width,  # * 0.01,
+            whisker_length=(pab - lower, upper - pab),  #  * 0.01,
+            center_width=self.whisker_width * 1.5,
+        )
+
+        self.pab_label.set_position((pab, 0.75))
+
+    def get_standardized_data(self):
+
+        standardized_data = {}
+        for model in self.comparison.models:
+            data = self.data[model.name]
+            standardized_data[model.name] = data * model.std + model.mean
+
+        return standardized_data
+
+    def compute_pab(self):
+        data = self.get_standardized_data()
+        pab_center = pab(data["A"], data["B"])
+        ci = normal_ci(data["A"], data["B"], sample_size=50)
+        lower = max(pab_center - ci, 0)
+        upper = min(pab_center + ci, 1)
+        # lowers = []
+        # uppers = []
+        # idx_choices = numpy.arange(data["A"].shape[0])
+        # for i in range(100):
+        #     idx = numpy.random.choice(idx_choices, size=50)
+        #     lower, upper = percentile_bootstrap(
+        #         data["A"][idx], data["B"][idx], alpha=0.05, bootstraps=100
+        #     )
+        #     lowers.append(lower)
+        #     uppers.append(upper)
+        # lower = numpy.array(lowers).mean()
+        # upper = numpy.array(uppers).mean()
+        return lower, pab_center, upper
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.data = {}
+        for model in self.comparison.models:
+            self.data[model.name] = numpy.random.normal(0, 1, size=10000)
+
+        center = self.comparison.x_padding + self.comparison.width / 2
+        x = center - self.ax_width / 2
+
+        self.ax_start_position = [x + self.ax_width / 2, 0.35, 0, 0.1]
+        self.ax_position = [x, 0.35, self.ax_width, 0.1]
+
+        self.comparison.pab_axe = fig.add_axes(
+            self.ax_position,
+            zorder=zorder(),
+        )
+
+        sns.despine(ax=self.comparison.pab_axe)
+        # self.comparison.pab_axe.get_xaxis().set_smart_bounds(True)
+        # despine(self.comparison.avg_axe)
+        self.comparison.pab_axe.spines["left"].set_visible(False)
+        self.comparison.pab_axe.get_yaxis().set_visible(False)
+        self.comparison.pab_axe.set_xlim((0, 1))
+        self.comparison.pab_axe.set_ylim((-1, 1))
+        lower, pab, upper = self.compute_pab()
+        self.comparison.pab_plot = h_moustachos(
+            self.comparison.pab_axe,
+            x=pab,
+            y=0,
+            whisker_width=self.whisker_width * 1e-10,
+            whisker_length=1e-10,
+            center_width=self.whisker_width * 1.5 * 1e-10,
+            clip_on=False,
+        )
+        self.saved_ci = (lower, pab, upper)
+
+        self.pab_label = self.comparison.pab_axe.text(
+            pab, 0.75, "", ha="center", va="bottom", fontsize=16, clip_on=False
+        )
+
+        self.gamma_tick = self.comparison.pab_axe.plot(
+            [pab, pab], [-0.75, -1.25], color="black", clip_on=False
+        )[0]
+
+        self.gamma_label = self.comparison.pab_axe.text(
+            pab, -2, "", ha="center", va="bottom", fontsize=16, clip_on=False
+        )
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        # Make axe appear smoothly
+        # Add center of pab first
+        # Add whiskers
+
+        x = translate(
+            self.ax_start_position[0], self.ax_position[0], i, self.n_frames / 10
+        )
+        width = translate(
+            self.ax_start_position[2], self.ax_position[2], i, self.n_frames / 10
+        )
+
+        self.comparison.pab_axe.set_position(
+            [x, self.ax_position[1], width, self.ax_position[3]]
+        )
+
+        if i > self.n_frames / 10 * 3.5:
+            self.pab_label.set_text("$P(A>B)$")
+
+        if i > self.n_frames / 10 * 3:
+            center_width = translate(
+                self.whisker_width * 1.5 * 1e-10,
+                self.whisker_width * 1.5,
+                i - self.n_frames / 10 * 3,
+                self.n_frames / 10,
+            )
+        else:
+            center_width = self.whisker_width * 1.5 * 1e-10
+
+        if i > self.n_frames / 10 * 5.5:
+            self.gamma_label.set_text("$\gamma$")
+
+        if i > self.n_frames / 10 * 5:
+            gamma_tick_y = translate(
+                0,
+                0.25,
+                i - self.n_frames / 10 * 5,
+                self.n_frames / 10,
+            )
+        else:
+            gamma_tick_y = 0
+
+        self.gamma_tick.set_ydata([-1 + gamma_tick_y, -1 - gamma_tick_y])
+
+        lower, pab, upper = self.saved_ci
+        if i > self.n_frames / 10 * 8:
+            whisker_width = self.whisker_width
+            whisker_length = translate(
+                1e-10,
+                pab - lower,
+                i - self.n_frames / 10 * 8,
+                self.n_frames / 10,
+            )
+        else:
+            whisker_width = self.whisker_width * 1e-10
+            whisker_length = 1e-10
+
+        adjust_h_moustachos(
+            self.comparison.pab_plot,
+            x=pab,
+            y=0,
+            whisker_width=whisker_width,
+            whisker_length=whisker_length,
+            center_width=center_width,
         )
 
     def clear(self):
@@ -2312,9 +2553,7 @@ class ChangeDists:
                 model.std = ith_stats["std"]
                 model.redraw()
 
-            # TODO: Support for PAB
-            if comparison.method == "Average":
-                comparison.method_object.redraw()
+            comparison.method_object.redraw()
 
     def clear(self):
         self(self.n_frames, None, None, None)
@@ -2408,7 +2647,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", default=0, type=int)
     parser.add_argument("--end", default=-1, type=int)
-    parser.add_argument("--fps", default=30, choices=[2, 5, 10, 30], type=int)
+    parser.add_argument("--fps", default=60, choices=[2, 5, 10, 30, 60], type=int)
     parser.add_argument("--output", default="mlsys2021.mp4", type=str)
     parser.add_argument("--dpi", default=300, type=int)
     parser.add_argument("--data-folder", default="~/Dropbox/Olympus-Data", type=str)
@@ -2537,23 +2776,36 @@ def main(argv=None):
             # TODO: Add paperswithcode transition, showing comparison moustachos
             # 3. Comparison section
             average_comparison,
-            AddModel(FPS * 1, average_comparison, "A", mean=-1, std=1),
-            AddModel(FPS * 1, average_comparison, "B", mean=1, std=1),
+            AddModel(FPS * 1, average_comparison, "A", mean=1, std=2),
+            AddModel(FPS * 1, average_comparison, "B", mean=-1, std=2),
             ComputeAverages(FPS * 5, average_comparison),
             pab_comparison,
-            AddModel(FPS * 1, pab_comparison, "A", mean=-1, std=1),
-            AddModel(FPS * 1, pab_comparison, "B", mean=1, std=1),
+            AddModel(FPS * 1, pab_comparison, "A", mean=1, std=2),
+            AddModel(FPS * 1, pab_comparison, "B", mean=-1, std=2),
             Still(FPS * 5),
-            # ComputePAB()
+            ComputePAB(FPS * 5, pab_comparison),
         ]
         + [
             ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
             for foo in [
-                lambda a, b: {"mean": (a.mean - 5, b.mean), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean, b.mean - 5), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean + 5, b.mean + 5), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean - 5, b.mean + 5), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean, b.mean + 2), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean, b.mean - 6), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean - 4, b.mean), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean + 4, b.mean + 4), "std": (a.std, b.std)},
                 lambda a, b: {"mean": (a.mean + 5, b.mean - 5), "std": (a.std, b.std)},
+                lambda a, b: {"mean": (a.mean - 5, b.mean + 5), "std": (a.std, b.std)},
+            ]
+        ]
+        + [Still(FPS * 5)]
+        + [
+            ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
+            for foo in [
+                lambda a, b: {"mean": (a.mean, b.mean), "std": (a.std * 10, b.std * 2)},
+                lambda a, b: {"mean": (a.mean, b.mean), "std": (a.std / 10, b.std / 2)},
+                lambda a, b: {
+                    "mean": (a.mean, b.mean),
+                    "std": (a.std / 10, b.std / 10),
+                },
             ]
         ]
         + [
