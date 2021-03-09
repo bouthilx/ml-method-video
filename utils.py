@@ -20,6 +20,90 @@ def despine(ax):
     ax.get_yaxis().set_visible(False)
 
 
+def plot_line(
+    axe,
+    x,
+    y,
+    err=None,
+    label=None,
+    alpha=0.5,
+    color=None,
+    linestyle=None,
+    min_y=None,
+    max_y=None,
+):
+    plots = {}
+    plots["line"] = axe.plot(x, y, label=label, color=color, linestyle=linestyle)[0]
+
+    if err is not None:
+        plots["err"] = plot_err(
+            axe,
+            x,
+            y,
+            err=err,
+            alpha=alpha,
+            color=color,
+            min_y=min_y,
+            max_y=max_y,
+        )
+
+    return plots
+
+
+def plot_err(
+    axe,
+    x,
+    y,
+    err=None,
+    alpha=0.5,
+    color=None,
+    min_y=None,
+    max_y=None,
+):
+    y = numpy.array(y)
+    err = numpy.array(err)
+
+    min_y_err = y - err
+    if min_y is not None:
+        min_y_err = min_y_err * (min_y_err > min_y) + min_y * (min_y_err <= min_y)
+
+    max_y_err = y + err
+    if max_y is not None:
+        max_y_err = max_y_err * (max_y_err <= max_y) + max_y * (max_y_err > max_y)
+
+    # axe.fill_between(x, max_y, min_y, linewidth=0, alpha=alpha, color=color)
+    return axe.fill_between(
+        x, min_y_err, max_y_err, linewidth=0, alpha=alpha, color=color
+    )
+
+
+def adjust_line(
+    ax,
+    plots,
+    x,
+    y,
+    err=None,
+    alpha=0.5,
+    color=None,
+    linestyle=None,
+    min_y=None,
+    max_y=None,
+):
+    plots["line"].set_xdata(x)
+    plots["line"].set_ydata(y)
+    if err is not None:
+        plots["err"].remove()
+        plots["err"] = plot_err(
+            ax,
+            x,
+            y,
+            err=err,
+            alpha=alpha,
+            color=color,
+            min_y=min_y,
+            max_y=max_y,
+        )
+
 
 class ZOrder:
     def __init__(self):

@@ -22,6 +22,7 @@ import joblib
 from sklearn.neighbors import KernelDensity
 
 from olympus.studies.simul.main import load_results
+from utils import plot_line, adjust_line
 
 
 WIDTH = (8.5 - 1.5) / 2
@@ -389,63 +390,6 @@ var_ratios = {
 }
 
 
-def plot_line(
-    axe,
-    x,
-    y,
-    err=None,
-    label=None,
-    alpha=0.5,
-    color=None,
-    linestyle=None,
-    min_y=None,
-    max_y=None,
-):
-    plots = {}
-    plots["line"] = axe.plot(x, y, label=label, color=color, linestyle=linestyle)[0]
-
-    if err is not None:
-        plots["err"] = plot_err(
-            axe,
-            x,
-            y,
-            err=err,
-            alpha=alpha,
-            color=color,
-            min_y=min_y,
-            max_y=max_y,
-        )
-
-    return plots
-
-
-def plot_err(
-    axe,
-    x,
-    y,
-    err=None,
-    alpha=0.5,
-    color=None,
-    min_y=None,
-    max_y=None,
-):
-    y = numpy.array(y)
-    err = numpy.array(err)
-
-    min_y_err = y - err
-    if min_y is not None:
-        min_y_err = min_y_err * (min_y_err > min_y) + min_y * (min_y_err <= min_y)
-
-    max_y_err = y + err
-    if max_y is not None:
-        max_y_err = max_y_err * (max_y_err <= max_y) + max_y * (max_y_err > max_y)
-
-    # axe.fill_between(x, max_y, min_y, linewidth=0, alpha=alpha, color=color)
-    return axe.fill_between(
-        x, min_y_err, max_y_err, linewidth=0, alpha=alpha, color=color
-    )
-
-
 def overview_line_chart(estimators=ESTIMATORS, tasks=TASKS, budgets=BUDGETS):
     fig, ax = plt.subplots(figsize=(7, 2))
 
@@ -609,12 +553,9 @@ class EstimatorsPlot:
             x = budgets
             y, err = stats[task]
 
-            self.plots[task][estimator]["line"].set_xdata(x)
-            self.plots[task][estimator]["line"].set_ydata(y)
-            self.plots[task][estimator]["err"].remove()  # What to do with this?
-
-            self.plots[task][estimator]["err"] = plot_err(
+            adjust_line(
                 ax,
+                self.plots[task][estimator],
                 x,
                 y,
                 err=err,

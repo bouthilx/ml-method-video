@@ -21,7 +21,7 @@ from variances import VariancesPlot
 from estimator_bubbles import EstimatorBubbles
 from estimators import EstimatorsPlot, LABELS
 from estimators import COLORS as EST_COLORS
-from simulations import pab, percentile_bootstrap, normal_ci
+from simulations import pab, percentile_bootstrap, normal_ci, SimulationPlot
 
 END = 10
 FPS = 60
@@ -73,6 +73,66 @@ def cum_argmax(x, y):
     return numpy.array(xs), numpy.array(ys)
 
 
+class Chapter:
+    def __init__(self, plots):
+        self.plots = plots
+        self.j = 0
+        self.last_i = 0
+        self.counter = 0
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.fig = fig
+        self.initialized = True
+
+    @property
+    def n_frames(self):
+        return sum([plot.n_frames for plot in self.plots])
+
+    def __call__(self, i, fig, ax, last_animation):
+        if not self.initialized:
+            self.initialize()
+            return
+
+        step = i - self.last_i
+        self.counter += step
+        self.last_i = i
+
+        plot = self.plots[self.j]
+        if plot.n_frames <= self.counter and self.j + 1 >= len(self.plots):
+            plot.leave()
+            return
+
+        elif plot.n_frames <= self.counter:
+            # self.j += 1
+            # self.counter -= plot.n_frames
+            plot = self.plots[self.j]
+            plot.initialize(fig, ax, self.plots[self.j - 1] if self.j > 0 else None)
+            while plot.n_frames <= self.counter:
+                plot.leave()
+                self.j += 1
+                if self.j >= len(self.plots):
+                    return
+                self.counter -= plot.n_frames
+                plot = self.plots[self.j]
+                plot.initialize(fig, ax, self.plots[self.j - 1] if self.j > 0 else None)
+
+            self.counter = max(self.counter, 0)
+        plot.initialize(fig, ax, self.plots[self.j - 1] if self.j > 0 else None)
+        plot(
+            self.counter,
+            fig,
+            ax,
+            self.plots[self.j - 1] if self.j > 0 else None,
+        )
+
+    def leave(self):
+        self.fig.clear()
+
+
 class Animation:
     def __init__(self, plots, width, height, start=0, end=-1, fps=FPS):
         self.plots = plots
@@ -101,7 +161,7 @@ class Animation:
                 break
             else:
                 plot.initialize(self.fig, self.ax, self.plots[j - 1] if j > 0 else None)
-                plot.clear()
+                plot.leave()
             total += plot.n_frames
 
     @property
@@ -132,18 +192,19 @@ class Animation:
         i = int(i)
         plot = self.plots[self.j]
         if plot.n_frames <= self.counter and self.j + 1 >= len(self.plots):
+            plot.leave()
             return (self.scatter,)
         elif plot.n_frames <= self.counter:
-            plot.clear()
+            plot.leave()
 
-            self.j += 1
-            self.counter -= plot.n_frames
+            # self.j += 1
+            # self.counter -= plot.n_frames
             plot = self.plots[self.j]
             plot.initialize(
                 self.fig, self.ax, self.plots[self.j - 1] if self.j > 0 else None
             )
             while plot.n_frames <= self.counter:
-                plot.clear()
+                plot.leave()
                 self.j += 1
                 self.counter -= plot.n_frames
                 plot = self.plots[self.j]
@@ -185,7 +246,7 @@ class Black:
         if not self.initialized:
             self.initialize(ax)
 
-    def clear(self):
+    def leave(self):
         self.black_patch.set_width(0)
         self.black_patch.set_height(0)
 
@@ -231,7 +292,7 @@ class PapersWithCode:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -293,7 +354,7 @@ class NoisyPapersWithCode:
         )
         self.line.set_ydata(new_cum_argmax)
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -307,7 +368,7 @@ class Still:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -408,7 +469,7 @@ class VarianceLabel:
             center_width=self.moustacho_center_width * 0.01,
         )
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -519,7 +580,7 @@ class EstimatorLabel:
             ),
         )
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -655,7 +716,7 @@ class ComparisonLabel:
                 center_width=center_width,
             )
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -676,7 +737,7 @@ class Zoom:
         tmp_y = translate(old_y, new_y, i, self.n_frames, saturation=saturation)
         ax.set_position([tmp_x, tmp_x, tmp_y, tmp_y])
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -942,7 +1003,7 @@ class Variances:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -995,7 +1056,7 @@ class VarianceSource:
         )
         rain_std(self.variances.get_bar(self.task, self.noise_type), hit_the_ground)
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1120,7 +1181,7 @@ class VarianceSum:
             # bbox = bar.get_bbox()
             # bar.set_xy((bbox.x0 + delta, bbox.y0))
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -1186,7 +1247,7 @@ class VariancesHighlight:
         for rectangle in self.grey_patches.values():
             rectangle.set_width(new_width)
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1254,7 +1315,7 @@ class NormalHighlight:
         for rectangle in self.grey_patches.values():
             rectangle.set_height(new_height)
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1346,7 +1407,7 @@ class VariancesFlushHist:
         new_x = translate(self.old_std_x, x, i, self.n_frames, saturation=3)
         self.variances.standard_deviation_label.set_position((new_x, y))
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1376,7 +1437,7 @@ class SqueezeTask:
             ]
         )
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1480,7 +1541,7 @@ class VarianceTask:
         for source in self.variance_sources:
             source(max(i - int(self.n_frames / FPS), 0), fig, ax, last_animation)
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1541,7 +1602,7 @@ class Algorithms:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -1607,7 +1668,7 @@ class CodeHighlight:
                 zorder=zorder.get(),
             )
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -1638,7 +1699,7 @@ class BringInBiasedEstimator:
             [new_x, bbox.y0, bbox.width, bbox.height]
         )
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1718,7 +1779,7 @@ class SimpleLinearScale:
         self.biased_curve.set_xdata(x)
         self.biased_curve.set_ydata(self.T + x)
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1791,7 +1852,7 @@ class MoveSimpleLinearScale:
         self.simple_curve_ax.set_xlabel(self.x_label, fontsize=new_label_fontsize)
         self.simple_curve_ax.set_ylabel(self.y_label, fontsize=new_label_fontsize)
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1823,7 +1884,7 @@ class VarianceEquations:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -1898,7 +1959,7 @@ class EstimatorSimulation:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -1926,7 +1987,7 @@ class EstimatorIncreaseK:
             self.estimators.k_text_template.format(k=int(k))
         )
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -1955,7 +2016,7 @@ class EstimatorAdjustRho:
             self.estimators.rho_text_template.format(rho=rho)
         )
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -2042,7 +2103,7 @@ class EstimatorTask:
         bbox = self.ax.get_position()
         self.ax.set_position((x, bbox.y0, bbox.width, bbox.height))
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -2103,7 +2164,7 @@ class EstimatorShow:
             estimators=[self.estimator],
         )
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
         if self.estimator != "IdealEst($k$)":
             self.estimators.estimators["right"].estimator = self.estimator
@@ -2143,42 +2204,48 @@ class ComparisonMethod:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
 class AddModel:
-    def __init__(self, n_frames, comparison, name, mean=-1, std=1):
+    def __init__(
+        self, n_frames, comparison, name, mean=-1, std=1, min_x=-10, max_x=10, scale=1
+    ):
         self.n_frames = n_frames
         self.comparison = comparison
         self.name = name
         self.mean = mean
         self.std = std
+        self.min_x = min_x
+        self.max_x = max_x
+        self.scale = scale
         self.comparison.models.append(self)
         self.initialized = False
 
     def redraw(self):
-        x = numpy.linspace(-10, 10, 1000)
+        x = numpy.linspace(self.min_x, self.max_x, 1000)
         y = scipy.stats.norm.pdf(x, self.mean, self.std)
         y /= max(self.max_y, max(y))
-        self.y = y
-        self.line.set_ydata(y)
+        self.y = y * self.scale
+        self.line.set_ydata(self.y)
         self.name_label.set_position((self.mean, max(self.y)))
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
 
-        x = numpy.linspace(-10, 10, 1000)
+        x = numpy.linspace(self.min_x, self.max_x, 1000)
         y = scipy.stats.norm.pdf(x, self.mean, self.std)
         self.max_y = max(y)
         y /= max(self.max_y, max(y))
-        self.y = y
-        self.line = self.comparison.ax.plot(x, y)[0]
+        self.y = y * self.scale
+        self.line = self.comparison.ax.plot(x, self.y)[0]
 
         self.name_label = self.comparison.ax.text(
             self.mean, -1, self.name, ha="center", va="bottom", fontsize=16
         )
+        self.comparison.ax.set_ylim(0, 1)
 
         self.initialized = True
 
@@ -2187,7 +2254,7 @@ class AddModel:
         self.line.set_ydata(self.y * scale)
         self.name_label.set_position((self.mean, max(self.y) * scale))
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -2325,7 +2392,7 @@ class ComputeAverages:
             center_width=0,
         )
 
-    def clear(self):
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -2501,7 +2568,7 @@ class ComputePAB:
             center_width=center_width,
         )
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -2555,7 +2622,240 @@ class ChangeDists:
 
             comparison.method_object.redraw()
 
-    def clear(self):
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class PABDists:
+    def __init__(self, ax, simulation, scale):
+        self.ax = ax
+        self.simulation = simulation
+        self.ax.get_xaxis().set_visible(False)
+        self.ax.get_yaxis().set_visible(False)
+        self.models = []
+        self.scale = scale
+
+    def set_pab(self, pab):
+        self.simulation.set_pab(pab)
+        for i, model in enumerate(self.models):
+            model.mean = self.simulation.means[i]
+            model.redraw()
+
+
+class PABScatter:
+    def __init__(self, ax):
+        self.ax = ax
+        # despine(self.ax)
+
+
+class PABComparison:
+    def __init__(self, ax):
+        self.ax = ax
+        # despine(self.ax)
+
+
+class PABPanel:
+    def __init__(self, fig, ax, simulation):
+        self.ax = ax
+        self.dists = PABDists(
+            fig.add_axes([0.1, 0.35, 0.2, 0.12]), simulation, scale=0.7
+        )
+        self.scatter = PABScatter(fig.add_axes([0.1, 0.05, 0.2, 0.3]))
+        self.comparison = PABComparison(fig.add_axes([0.3, 0.05, 0.2, 0.3]))
+
+    def set_pab(self, pab):
+        display_coords = self.ax.transData.transform((pab, 0))
+        figure_coords = self.ax.figure.transFigure.inverted().transform(display_coords)
+
+        center = figure_coords[0]
+        top = figure_coords[1]
+        bbox = self.dists.ax.get_position()
+        x = center - bbox.width / 2
+        # x = center
+        y = top - 0.05 - bbox.height
+        self.dists.ax.set_position((x, y, bbox.width, bbox.height))
+        self.dists.set_pab(pab)
+
+
+class SimulationAnimation:
+    def __init__(self, plot):
+        self.n_frames = 1
+        self.plot = plot
+        self.ax_width = 0.45
+        self.initialized = False
+        self.current_pab = 0.7
+
+    def set_pab(self, pab):
+        self.current_pab = pab
+        self.viz.set_pab(pab)
+
+    def initialize(self, fig, ax, last_animation):
+
+        if self.initialized:
+            return
+
+        self.ideal_simulation = self.plot.simulation_builder.create_simulations(
+            ["bert-rte"],
+            "ideal",
+            sample_size=self.plot.sample_size,
+            pab=self.current_pab,
+        ).get_task("bert-rte")
+        self.biased_simulation = self.plot.simulation_builder.create_simulations(
+            ["bert-rte"],
+            "biased",
+            sample_size=self.plot.sample_size,
+            pab=self.current_pab,
+        ).get_task("bert-rte")
+
+        self.ax = fig.add_axes([0.1, 0.6, self.ax_width, 0.3])
+
+        self.plot.build_simulations()
+        self.plot.build_curves(self.ax)
+        self.plot.format_ax(self.ax)
+        self.plot.add_legend(self.ax)
+
+        self.plot.add_h0(self.ax)
+        self.plot.add_h01(self.ax)
+        self.plot.add_h1(self.ax)
+
+        for curve in self.plot.curves.values():
+            curve.set_pab(1)
+        # self.plot.curves["biased-avg"].set_pab(1)
+        # self.plot.curves["oracle"].set_pab(1)
+        # self.plot.curves["ideal-pab"].set_pab(1)
+        # self.plot.curves["biased-pab"].set_pab(1)
+
+        self.viz = PABPanel(fig, self.ax, self.biased_simulation)
+        self.viz.set_pab(self.current_pab)
+
+        print("formated")
+
+        # Create PABFrame and register to animation
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        pass
+
+
+class ShowPAB:
+    def __init__(self, n_frames, animation, pab):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.pab = pab
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        # TODO: The simulation for this one should be normalized
+        self.animation.ideal_simulation.set_pab(0.7)
+        self.animation.biased_simulation.set_pab(0.7)
+        self.models = []
+        for i, label in enumerate("AB"):
+            model = AddModel(
+                self.n_frames,
+                self.animation.viz.dists,
+                label,
+                mean=self.animation.biased_simulation.means[i]
+                / 2,  # TODO should not be div
+                std=self.animation.biased_simulation.stds[i]
+                / 2,  # TODO should not be div
+                min_x=-self.animation.biased_simulation.stds[i] * 5,
+                max_x=self.animation.biased_simulation.stds[i] * 5,
+                scale=self.animation.viz.dists.scale,
+            )
+            model.initialize(fig, ax, last_animation)
+            self.models.append(model)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        for model in self.models:
+            model(i, fig, ax, last_animation)
+        # TODO: - Increase size of ax from 0, opening from top
+        #       - Add line from top to tick of main plot
+
+    def leave(self):
+        pass
+
+
+class MovePAB:
+    def __init__(self, n_frames, animation, pab):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.pab = pab
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.old_pab = self.animation.current_pab
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pab = linear(self.old_pab, self.pab, i, self.n_frames)
+        # TODO: Inside simulation plot, update PAB plot, Simuls plot and current
+        #       comparison column
+        self.animation.set_pab(pab)
+
+    def leave(self):
+        pass
+
+
+class SimulationViz:
+    def __init__(self):
+        self.n_frames = 1
+        self.initialized = False
+
+    def set_pab(self, pab):
+        pass
+        # self.pab_viz.set_pab(pab)
+        # self.simulation_viz.set_pab(pab)
+        # self.test_viz.set_pab(pab)
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        pass
+
+
+class ShowCurve:
+    def __init__(self, n_frames, animation, plot, names, pab):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.plot = plot
+        self.curves = [plot.curves[name] for name in names]
+        self.pab = pab
+        self.move = MovePAB(n_frames, animation, pab)
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.move.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.move(i, fig, ax, last_animation)
+        self.curve.set_pab(self.animation.current_pab)
+
+    def leave(self):
         self(self.n_frames, None, None, None)
 
 
@@ -2573,7 +2873,7 @@ class Template:
     def __call__(self, i, fig, ax, last_animation):
         pass
 
-    def clear(self):
+    def leave(self):
         pass
 
 
@@ -2637,7 +2937,7 @@ class Cover:
         if not self.initialized:
             self.initialize(ax)
 
-    def clear(self):
+    def leave(self):
         self.title.set_position((-1, -1))
         self.authors_text.set_position((-1, -1))
         self.affiliations_text.set_position((-1, -1))
@@ -2663,6 +2963,16 @@ def main(argv=None):
     estimator_task = EstimatorTask(FPS * 2)
     average_comparison = ComparisonMethod(FPS * 1, "Average", 0.1)
     pab_comparison = ComparisonMethod(FPS * 1, "Probability of outperforming", 0.5)
+
+    simulation_plot = SimulationPlot(
+        # gamma=0.75, sample_size=50, n_points=100, simuls=1000
+        gamma=0.75,
+        sample_size=50,
+        n_points=20,
+        simuls=100,
+    )
+
+    simulation_animation = SimulationAnimation(simulation_plot)
 
     animate = Animation(
         [
@@ -2775,46 +3085,108 @@ def main(argv=None):
             Still(FPS * 10),
             # TODO: Add paperswithcode transition, showing comparison moustachos
             # 3. Comparison section
-            average_comparison,
-            AddModel(FPS * 1, average_comparison, "A", mean=1, std=2),
-            AddModel(FPS * 1, average_comparison, "B", mean=-1, std=2),
-            ComputeAverages(FPS * 5, average_comparison),
-            pab_comparison,
-            AddModel(FPS * 1, pab_comparison, "A", mean=1, std=2),
-            AddModel(FPS * 1, pab_comparison, "B", mean=-1, std=2),
-            Still(FPS * 5),
-            ComputePAB(FPS * 5, pab_comparison),
         ]
         + [
-            ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
-            for foo in [
-                lambda a, b: {"mean": (a.mean, b.mean + 2), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean, b.mean - 6), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean - 4, b.mean), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean + 4, b.mean + 4), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean + 5, b.mean - 5), "std": (a.std, b.std)},
-                lambda a, b: {"mean": (a.mean - 5, b.mean + 5), "std": (a.std, b.std)},
-            ]
+            Chapter(
+                [
+                    average_comparison,
+                    AddModel(FPS * 1, average_comparison, "A", mean=1, std=2),
+                    AddModel(FPS * 1, average_comparison, "B", mean=-1, std=2),
+                    ComputeAverages(FPS * 5, average_comparison),
+                    pab_comparison,
+                    AddModel(FPS * 1, pab_comparison, "A", mean=1, std=2),
+                    AddModel(FPS * 1, pab_comparison, "B", mean=-1, std=2),
+                    Still(FPS * 5),
+                    ComputePAB(FPS * 5, pab_comparison),
+                ]
+                + [
+                    ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
+                    for foo in [
+                        lambda a, b: {
+                            "mean": (a.mean, b.mean + 2),
+                            "std": (a.std, b.std),
+                        },
+                        lambda a, b: {
+                            "mean": (a.mean, b.mean - 6),
+                            "std": (a.std, b.std),
+                        },
+                        lambda a, b: {
+                            "mean": (a.mean - 4, b.mean),
+                            "std": (a.std, b.std),
+                        },
+                        lambda a, b: {
+                            "mean": (a.mean + 4, b.mean + 4),
+                            "std": (a.std, b.std),
+                        },
+                        lambda a, b: {
+                            "mean": (a.mean + 5, b.mean - 5),
+                            "std": (a.std, b.std),
+                        },
+                        lambda a, b: {
+                            "mean": (a.mean - 5, b.mean + 5),
+                            "std": (a.std, b.std),
+                        },
+                    ]
+                ]
+                + [Still(FPS * 5)]
+                + [
+                    ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
+                    for foo in [
+                        lambda a, b: {
+                            "mean": (a.mean, b.mean),
+                            "std": (a.std * 10, b.std * 2),
+                        },
+                        lambda a, b: {
+                            "mean": (a.mean, b.mean),
+                            "std": (a.std / 10, b.std / 2),
+                        },
+                        lambda a, b: {
+                            "mean": (a.mean, b.mean),
+                            "std": (a.std / 10, b.std / 10),
+                        },
+                    ]
+                ]
+                + [Still(FPS * 5)]
+            )
         ]
-        + [Still(FPS * 5)]
         + [
-            ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
-            for foo in [
-                lambda a, b: {"mean": (a.mean, b.mean), "std": (a.std * 10, b.std * 2)},
-                lambda a, b: {"mean": (a.mean, b.mean), "std": (a.std / 10, b.std / 2)},
-                lambda a, b: {
-                    "mean": (a.mean, b.mean),
-                    "std": (a.std / 10, b.std / 10),
-                },
-            ]
-        ]
-        + [
-            Still(FPS * 5),
-            # ChangeVariances(FPS * 10),
             # Simulations
-            # Add estimator bubble bottom left
-            # Add empty plot center
-            # Swipe dist example on Y axis to explain, explain at the same time the grey regions
+            Chapter(
+                [
+                    simulation_animation,
+                    Still(FPS * 5),
+                    ShowPAB(FPS * 5, simulation_animation, pab=0.7),
+                    MovePAB(FPS * 5, simulation_animation, pab=0.4),
+                    Still(FPS * 5),
+                    # ShowH0(),
+                    MovePAB(FPS * 10, simulation_animation, pab=0.5),
+                    Still(FPS * 5),
+                    # ShowH01(),
+                    MovePAB(FPS * 10, simulation_animation, pab=0.75),
+                    Still(FPS * 5),
+                    # ShowH01(),
+                    MovePAB(FPS * 10, simulation_animation, pab=1),
+                    # MovePAB(pab=0.4),
+                    # MovePAB(pab=0.5),
+                    # MovePAB(pab=0.75),
+                    # ShowH1(),
+                    # MovePAB(pab=0.75),
+                ]
+                + sum(
+                    [
+                        []
+                        # MovePAB(pab=0.4),
+                        # ShowCurve(simulation_animation, simulation_plot, names, pab=0.5),
+                        # ShowCurve('oracle', pab=0.75),
+                        # ShowCurve('oracle', pab=1),
+                        # for curve in [['oracle'], ['single'], ['ideal-avg', 'biased-avg'],
+                        # ['ideal-pab', 'biased-pab']]
+                    ],
+                    [],
+                )
+                + []
+                # AdjustDelta(delta=<what value to make it equivalent to pab?>)
+            ),
             # 4. Summary with stat test example
         ],
         width,
