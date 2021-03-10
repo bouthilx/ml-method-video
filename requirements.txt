@@ -1,3 +1,8 @@
 matplotlib
 celluloid
 scipy
+seaborn
+tqdm
+xarray
+joblib
+sklearn

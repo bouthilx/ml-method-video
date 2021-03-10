@@ -11,6 +11,7 @@ from matplotlib import pyplot as plt
 import matplotlib.cm
 from matplotlib.animation import FuncAnimation
 from tqdm import tqdm
+import scipy.optimize
 
 
 from moustachos import adjust_moustachos, moustachos, h_moustachos, adjust_h_moustachos
@@ -21,7 +22,16 @@ from variances import VariancesPlot
 from estimator_bubbles import EstimatorBubbles
 from estimators import EstimatorsPlot, LABELS
 from estimators import COLORS as EST_COLORS
-from simulations import pab, percentile_bootstrap, normal_ci, SimulationPlot
+from simulations import (
+    pab,
+    percentile_bootstrap,
+    normal_ci,
+    SimulationPlot,
+    SimulationScatter,
+    AverageTestViz,
+    AverageTest,
+    PABTest,
+)
 
 END = 10
 FPS = 60
@@ -2210,7 +2220,16 @@ class ComparisonMethod:
 
 class AddModel:
     def __init__(
-        self, n_frames, comparison, name, mean=-1, std=1, min_x=-10, max_x=10, scale=1
+        self,
+        n_frames,
+        comparison,
+        name,
+        mean=-1,
+        std=1,
+        min_x=-10,
+        max_x=10,
+        scale=1,
+        color=None,
     ):
         self.n_frames = n_frames
         self.comparison = comparison
@@ -2220,6 +2239,7 @@ class AddModel:
         self.min_x = min_x
         self.max_x = max_x
         self.scale = scale
+        self.color = color
         self.comparison.models.append(self)
         self.initialized = False
 
@@ -2240,7 +2260,7 @@ class AddModel:
         self.max_y = max(y)
         y /= max(self.max_y, max(y))
         self.y = y * self.scale
-        self.line = self.comparison.ax.plot(x, self.y)[0]
+        self.line = self.comparison.ax.plot(x, self.y, color=self.color)[0]
 
         self.name_label = self.comparison.ax.text(
             self.mean, -1, self.name, ha="center", va="bottom", fontsize=16
@@ -2632,6 +2652,8 @@ class PABDists:
         self.simulation = simulation
         self.ax.get_xaxis().set_visible(False)
         self.ax.get_yaxis().set_visible(False)
+        self.ax.set_ylim((0, 1))
+        self.ax.plot([0, 0], [1, 1.4], clip_on=False, linewidth=0.75, color="black")
         self.models = []
         self.scale = scale
 
@@ -2643,25 +2665,91 @@ class PABDists:
 
 
 class PABScatter:
-    def __init__(self, ax):
+    def __init__(self, ax, simulation, n_rows):
         self.ax = ax
-        # despine(self.ax)
+        self.n_rows = n_rows
+        self.simulation = simulation
+
+        ax.set_xlim(-simulation.stds[0] * 5, simulation.stds[0] * 5)
+        ax.set_ylim(-0.5, 20.5)
+        despine(self.ax)
+
+        self.scatter = SimulationScatter(
+            ax,
+            simulation,
+            n_rows=self.n_rows,
+            colors=dict(A=variances_colors(0), B=variances_colors(1)),
+        )
+        self.scatter.redraw()
+
+    def set_pab(self, pab):
+        self.simulation.set_pab(pab)
+        self.scatter.redraw()
 
 
 class PABComparison:
-    def __init__(self, ax):
+    def __init__(self, ax, simulation, n_rows):
         self.ax = ax
-        # despine(self.ax)
+        self.simulation = simulation
+        self.n_rows = n_rows
+        self.test_viz = None
+        despine(self.ax)
+
+    def set_test(self, test):
+        # TODO: Set ideal simulation when using ideal curves
+        # TODO: Clear axis when changing test
+
+        # Trying to set the same test
+        if self.test_viz is not None and self.test_viz.test is test:
+            return
+
+        # Test will be changed, clear axis from previous one
+        if self.test_viz is not None:
+            self.ax.clear()
+
+        if isinstance(test, AverageTest):
+            self.test_viz = AverageTestViz(
+                self.ax, self.simulation, n_rows=self.n_rows, test=test
+            )
+            self.ax.set_xlim(0, self.simulation.stds[0] * 5 * 2)
+            self.ax.set_ylim(-0.5, 20.5)
+        elif isinstance(test, PABTest):
+            self.test_viz = None
+            return
+            # TODO: Complete PABTestViz
+            self.test_viz = AverageTestViz(
+                self.ax, self.simulation, n_rows=self.n_rows, test=test
+            )
+            self.ax.set_xlim(0, self.simulation.stds[0] * 5 * 2)
+            self.ax.set_ylim(-0.5, 20.5)
+        else:
+            self.test_viz = None
+
+    def set_pab(self, pab):
+        if self.test_viz is not None:
+            self.simulation.set_pab(pab)
+            self.test_viz.redraw()
 
 
 class PABPanel:
-    def __init__(self, fig, ax, simulation):
+    def __init__(self, fig, ax, simulation, n_rows=20):
         self.ax = ax
         self.dists = PABDists(
-            fig.add_axes([0.1, 0.35, 0.2, 0.12]), simulation, scale=0.7
+            fig.add_axes([0.1, 0.35, 0.2, 0.12], zorder=zorder()), simulation, scale=0.7
         )
-        self.scatter = PABScatter(fig.add_axes([0.1, 0.05, 0.2, 0.3]))
-        self.comparison = PABComparison(fig.add_axes([0.3, 0.05, 0.2, 0.3]))
+        self.scatter = PABScatter(
+            fig.add_axes([0.1, 0.0, 0.2, 0.45], zorder=zorder.get() - 1),
+            simulation,
+            n_rows,
+        )
+        self.comparison = PABComparison(
+            fig.add_axes([0.32, 0.0, 0.2, 0.45], zorder=zorder.get() - 2),
+            simulation,
+            n_rows,
+        )
+
+    def set_test(self, test):
+        self.comparison.set_test(test)
 
     def set_pab(self, pab):
         display_coords = self.ax.transData.transform((pab, 0))
@@ -2675,6 +2763,57 @@ class PABPanel:
         y = top - 0.05 - bbox.height
         self.dists.ax.set_position((x, y, bbox.width, bbox.height))
         self.dists.set_pab(pab)
+        bbox = self.scatter.ax.get_position()
+        self.scatter.set_pab(pab)
+        self.scatter.ax.set_position((x, bbox.y0, bbox.width, bbox.height))
+        scatter_width = bbox.width
+        bbox = self.comparison.ax.get_position()
+        self.comparison.set_pab(pab)
+        self.comparison.ax.set_position(
+            (x + scatter_width + 0.02, bbox.y0, bbox.width, bbox.height)
+        )
+
+
+class Indicator:
+    def __init__(self, ax):
+        self.line = ax.plot(
+            [0], [0], color="grey", linestyle="--", clip_on=False, zorder=zorder()
+        )[0]
+        self.text = ax.text(
+            0,
+            0,
+            "",
+            va="center",
+            ha="left",
+            clip_on=False,
+            fontsize=14,
+            zorder=zorder.get(),
+        )
+        self.x_max = 1.01
+        self.show = False
+
+    def redraw(self):
+        if self.show:
+            x = self.pab
+            y_idx = numpy.searchsorted(self.curve.pabs, self.pab)
+            y = self.curve.rates[y_idx]
+            self.line.set_xdata([x, self.x_max])
+            self.line.set_ydata([y, y])
+            self.text.set_text("{y: 3d}%".format(y=int(y)))
+            self.text.set_position((self.x_max, y))
+        else:
+            self.line.set_xdata([0])
+            self.line.set_ydata([0])
+            self.text.set_text("")
+            self.text.set_position((0, 0))
+
+    def set_pab(self, pab):
+        self.pab = pab
+        self.redraw()
+
+    def set_curve(self, curve):
+        self.show = True
+        self.curve = curve
 
 
 class SimulationAnimation:
@@ -2687,7 +2826,11 @@ class SimulationAnimation:
 
     def set_pab(self, pab):
         self.current_pab = pab
+        self.indicator.set_pab(pab)
         self.viz.set_pab(pab)
+
+    def set_indicator(self, curve):
+        self.indicator.set_curve(curve)
 
     def initialize(self, fig, ax, last_animation):
 
@@ -2699,12 +2842,14 @@ class SimulationAnimation:
             "ideal",
             sample_size=self.plot.sample_size,
             pab=self.current_pab,
+            simuls=50,
         ).get_task("bert-rte")
         self.biased_simulation = self.plot.simulation_builder.create_simulations(
             ["bert-rte"],
             "biased",
             sample_size=self.plot.sample_size,
             pab=self.current_pab,
+            simuls=50,
         ).get_task("bert-rte")
 
         self.ax = fig.add_axes([0.1, 0.6, self.ax_width, 0.3])
@@ -2714,12 +2859,12 @@ class SimulationAnimation:
         self.plot.format_ax(self.ax)
         self.plot.add_legend(self.ax)
 
-        self.plot.add_h0(self.ax)
-        self.plot.add_h01(self.ax)
-        self.plot.add_h1(self.ax)
+        # self.plot.add_h0(self.ax)
+        # self.plot.add_h01(self.ax)
+        # self.plot.add_h1(self.ax)
 
-        for curve in self.plot.curves.values():
-            curve.set_pab(1)
+        # for curve in self.plot.curves.values():
+        #     curve.set_pab(1)
         # self.plot.curves["biased-avg"].set_pab(1)
         # self.plot.curves["oracle"].set_pab(1)
         # self.plot.curves["ideal-pab"].set_pab(1)
@@ -2727,6 +2872,9 @@ class SimulationAnimation:
 
         self.viz = PABPanel(fig, self.ax, self.biased_simulation)
         self.viz.set_pab(self.current_pab)
+        # self.viz.set_test(self.plot.curves["biased-avg"].comparison_method)
+
+        self.indicator = Indicator(self.ax)
 
         print("formated")
 
@@ -2761,13 +2909,12 @@ class ShowPAB:
                 self.n_frames,
                 self.animation.viz.dists,
                 label,
-                mean=self.animation.biased_simulation.means[i]
-                / 2,  # TODO should not be div
-                std=self.animation.biased_simulation.stds[i]
-                / 2,  # TODO should not be div
+                mean=self.animation.biased_simulation.means[i],
+                std=self.animation.biased_simulation.stds[i],
                 min_x=-self.animation.biased_simulation.stds[i] * 5,
                 max_x=self.animation.biased_simulation.stds[i] * 5,
                 scale=self.animation.viz.dists.scale,
+                color=variances_colors(i),
             )
             model.initialize(fig, ax, last_animation)
             self.models.append(model)
@@ -2838,7 +2985,7 @@ class ShowCurve:
         self.n_frames = n_frames
         self.animation = animation
         self.plot = plot
-        self.curves = [plot.curves[name] for name in names]
+        self.names = names
         self.pab = pab
         self.move = MovePAB(n_frames, animation, pab)
         self.initialized = False
@@ -2848,15 +2995,126 @@ class ShowCurve:
             return
 
         self.move.initialize(fig, ax, last_animation)
+        self.curves = [self.plot.curves[name] for name in self.names]
+        self.animation.set_indicator(self.curves[-1])
+        self.animation.viz.set_test(self.curves[-1].comparison_method)
 
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
         self.move(i, fig, ax, last_animation)
-        self.curve.set_pab(self.animation.current_pab)
+        for curve in self.curves:
+            curve.set_pab(self.animation.current_pab)
+
+        if self.names[0] == "oracle" and self.animation.current_pab > 0.65:
+            self.animation.plot.add_oracle_annotation(
+                self.animation.ax, self.curves[0].pabs, self.curves[0].rates
+            )
 
     def leave(self):
         self(self.n_frames, None, None, None)
+
+
+class ShowH0:
+    def __init__(self, n_frames, animation):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        self.animation.plot.add_h0(self.animation.ax)
+
+
+class ShowH01:
+    def __init__(self, n_frames, animation):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        self.animation.plot.add_h01(self.animation.ax)
+
+
+class ShowH1:
+    def __init__(self, n_frames, animation):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        self.animation.plot.add_h1(self.animation.ax)
+
+
+# TODO: Add Acc, AUC and other metrics in labels for variances
+
+
+class AdjustAverage:
+    def __init__(self, n_frames, animation):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.old_gamma = self.animation.plot.curves[
+            "biased-avg"
+        ].comparison_method.gamma
+
+        def cost(gamma):
+            self.animation.plot.curves["biased-avg"].comparison_method.gamma = gamma
+            self.animation.plot.curves["biased-avg"].compute()
+            # Compare err with biased-pab
+            avg_rate = self.animation.plot.curves["biased-avg"].rates  # [index]
+            pab_rate = self.animation.plot.curves["biased-pab"].rates  # [index]
+            return ((numpy.array(avg_rate) - numpy.array(pab_rate)) ** 2).sum()
+
+        result = scipy.optimize.minimize_scalar(cost, bounds=(0.5, 1), method="bounded")
+        print(result.x)
+        self.new_gamma = result.x
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        gamma = translate(
+            self.old_gamma, self.new_gamma, i, self.n_frames, saturation=5
+        )
+        self.animation.plot.curves["biased-avg"].comparison_method.gamma = gamma
+        self.animation.plot.curves["biased-avg"].compute()
+        self.animation.plot.curves["biased-avg"].redraw()
+
+        # TODO: Set simulations with Average tests and adjust delta based on new gamma
+
+    def leave(self):
+        pass
 
 
 class Template:
@@ -2968,8 +3226,8 @@ def main(argv=None):
         # gamma=0.75, sample_size=50, n_points=100, simuls=1000
         gamma=0.75,
         sample_size=50,
-        n_points=20,
-        simuls=100,
+        n_points=100,
+        simuls=1000,
     )
 
     simulation_animation = SimulationAnimation(simulation_plot)
@@ -3156,35 +3414,58 @@ def main(argv=None):
                     simulation_animation,
                     Still(FPS * 5),
                     ShowPAB(FPS * 5, simulation_animation, pab=0.7),
-                    MovePAB(FPS * 5, simulation_animation, pab=0.4),
-                    Still(FPS * 5),
-                    # ShowH0(),
-                    MovePAB(FPS * 10, simulation_animation, pab=0.5),
-                    Still(FPS * 5),
-                    # ShowH01(),
-                    MovePAB(FPS * 10, simulation_animation, pab=0.75),
-                    Still(FPS * 5),
-                    # ShowH01(),
-                    MovePAB(FPS * 10, simulation_animation, pab=1),
-                    # MovePAB(pab=0.4),
-                    # MovePAB(pab=0.5),
-                    # MovePAB(pab=0.75),
-                    # ShowH1(),
-                    # MovePAB(pab=0.75),
+                    MovePAB(FPS * 2, simulation_animation, pab=0.4),
+                    ShowH0(FPS * 5, simulation_animation),
+                    MovePAB(FPS * 2, simulation_animation, pab=0.5),
+                    ShowH01(FPS * 5, simulation_animation),
+                    MovePAB(FPS * 2, simulation_animation, pab=0.75),
+                    ShowH1(FPS * 5, simulation_animation),
+                    MovePAB(FPS * 2, simulation_animation, pab=1),
+                    Still(FPS * 2),
                 ]
                 + sum(
                     [
-                        []
-                        # MovePAB(pab=0.4),
-                        # ShowCurve(simulation_animation, simulation_plot, names, pab=0.5),
-                        # ShowCurve('oracle', pab=0.75),
-                        # ShowCurve('oracle', pab=1),
-                        # for curve in [['oracle'], ['single'], ['ideal-avg', 'biased-avg'],
-                        # ['ideal-pab', 'biased-pab']]
+                        [
+                            MovePAB(FPS * 1, simulation_animation, pab=0.4),
+                            ShowCurve(
+                                FPS * 1,
+                                simulation_animation,
+                                simulation_plot,
+                                names,
+                                pab=0.5,
+                            ),
+                            Still(FPS * 5),
+                            ShowCurve(
+                                FPS * 1,
+                                simulation_animation,
+                                simulation_plot,
+                                names,
+                                pab=0.75,
+                            ),
+                            Still(FPS * 5),
+                            ShowCurve(
+                                FPS * 1,
+                                simulation_animation,
+                                simulation_plot,
+                                names,
+                                pab=1,
+                            ),
+                            Still(FPS * 5),
+                        ]
+                        for names in [
+                            ["oracle"],
+                            ["single"],
+                            ["ideal-avg", "biased-avg"],
+                            ["ideal-pab", "biased-pab"],
+                        ]
                     ],
                     [],
                 )
-                + []
+                + [
+                    Still(FPS * 5),
+                    AdjustAverage(FPS * 5, simulation_animation),
+                    Still(FPS * 5),
+                ]
                 # AdjustDelta(delta=<what value to make it equivalent to pab?>)
             ),
             # 4. Summary with stat test example

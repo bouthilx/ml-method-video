@@ -77,6 +77,18 @@ def plot_err(
     )
 
 
+class VLineLabel:
+    def __init__(self, ax, fontsize=14, color="black", linestyle="--", **kwargs):
+        self.label = ax.text(0, 0, "", fontsize=fontsize, clip_on=False)
+        self.line = ax.plot([], [], color=color, linestyle=linestyle, clip_on=False)[0]
+
+    def set_position(self, x, y, text, min_y=0, pad_y=1):
+        self.label.set_position((x, y + pad_y))
+        self.label.set_text(text)
+        self.line.set_xdata([x, x])
+        self.line.set_ydata([min_y, y])
+
+
 def adjust_line(
     ax,
     plots,
