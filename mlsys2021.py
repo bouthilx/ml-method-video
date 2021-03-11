@@ -1,5 +1,8 @@
 import argparse
+import copy
 import functools
+from multiprocessing import Pool
+import warnings
 
 import matplotlib.image as mpimg
 import matplotlib.animation as animation
@@ -33,6 +36,14 @@ from simulations import (
     PABTest,
 )
 
+
+warnings.filterwarnings("ignore")
+
+# with warnings.catch_warnings():
+#     warnings.filterwarnings(
+#         "ignore", r"RuntimeWarning: Degrees of freedom <= 0 for slice"
+#     )
+
 END = 10
 FPS = 60
 
@@ -41,6 +52,8 @@ zorder = ZOrder()
 
 
 N_INTRO = 25
+
+PAB = 0.75
 
 
 norm = matplotlib.colors.Normalize(vmin=0, vmax=9)
@@ -83,7 +96,7 @@ def cum_argmax(x, y):
     return numpy.array(xs), numpy.array(ys)
 
 
-class Chapter:
+class Section:
     def __init__(self, plots):
         self.plots = plots
         self.j = 0
@@ -104,8 +117,7 @@ class Chapter:
 
     def __call__(self, i, fig, ax, last_animation):
         if not self.initialized:
-            self.initialize()
-            return
+            self.initialize(fig, ax, last_animation)
 
         step = i - self.last_i
         self.counter += step
@@ -114,7 +126,7 @@ class Chapter:
         plot = self.plots[self.j]
         if plot.n_frames <= self.counter and self.j + 1 >= len(self.plots):
             plot.leave()
-            return
+            return 0
 
         elif plot.n_frames <= self.counter:
             # self.j += 1
@@ -125,7 +137,7 @@ class Chapter:
                 plot.leave()
                 self.j += 1
                 if self.j >= len(self.plots):
-                    return
+                    return 0
                 self.counter -= plot.n_frames
                 plot = self.plots[self.j]
                 plot.initialize(fig, ax, self.plots[self.j - 1] if self.j > 0 else None)
@@ -138,9 +150,39 @@ class Chapter:
             ax,
             self.plots[self.j - 1] if self.j > 0 else None,
         )
+        return step
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class Chapter(Section):
+    def __init__(self, name, plots, pbar_position=None):
+        super(Chapter, self).__init__(plots)
+        self.name = name
+        self.pbar_position = pbar_position
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.pbar = tqdm(
+            total=self.n_frames, leave=True, desc=self.name, position=self.pbar_position
+        )
+        super(Chapter, self).initialize(fig, ax, last_animation)
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        step = i - self.last_i
+        # print(i, self.last_i)
+        super(Chapter, self).__call__(i, fig, ax, last_animation)
+        # print(step)
+        # print(step)
+        self.pbar.update(step)
 
     def leave(self):
         self.fig.clear()
+        self.pbar.close()
 
 
 class Animation:
@@ -161,7 +203,7 @@ class Animation:
         self.initialized = False
 
     def initialize(self):
-        self.pbar = tqdm(total=self.n_frames)
+        # self.pbar = tqdm(total=self.n_frames, desc="Full video")
         self.initialized = True
         total = 0
         for j, plot in enumerate(self.plots):
@@ -233,7 +275,7 @@ class Animation:
             self.plots[self.j - 1] if self.j > 0 else None,
         )
         self.counter = int(self.counter + self.step)
-        self.pbar.update(self.step)
+        # self.pbar.update(self.step)
         return (self.scatter,)
 
 
@@ -799,7 +841,6 @@ class Variances:
             "everything": "Everything",
         }
 
-        # TODO: adjust colors
         self.hist_height = 1
         self.hist_heights = len(self.label_order) * self.hist_height
         self.n_columns = 20
@@ -880,8 +921,6 @@ class Variances:
                 frameon=False,
             )
 
-            # TODO: Use as many bars as there is noise source (+ everything) and
-            #       leave a bit more space around HPO instead of full empty bars.
             self.bars[key] = self.bar_axes[key].barh(
                 range(len(self.label_order)),
                 numpy.zeros(len(self.label_order)),
@@ -1006,7 +1045,7 @@ class Variances:
         # self.hist_axes["vgg"].set_position([0.2, 0.2, 0.6, 0.6])
         # self.hist_axes[self.keys[-1]].set_position([0.2, 0.2, 0.6, 0.6])
 
-        ax.remove()
+        # ax.remove()
 
         self.initialized = True
 
@@ -1036,7 +1075,6 @@ class VarianceSource:
         pass
 
     def __call__(self, i, fig, ax, last_animation):
-        # TODO: Add label if with_label
         if self.with_label:
             text = self.variances.labels[self.noise_type]
             n = int(translate(3, len(text) + 1, i, self.n_frames / 15, saturation=5))
@@ -1215,8 +1253,6 @@ class VariancesHighlight:
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
-        # TODO: Create new rectangles
-        # For any label not in self.noise_types:
         self.grey_patches = {}
         for label in self.variances.label_order:
             if label in self.noise_types:
@@ -1253,7 +1289,6 @@ class VariancesHighlight:
                 saturation=10,
             )
 
-        # TODO: Slides the rectangles very fast ->
         for rectangle in self.grey_patches.values():
             rectangle.set_width(new_width)
 
@@ -1279,8 +1314,6 @@ class NormalHighlight:
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
-        # TODO: Create new rectangles
-        # For any label not in self.noise_types:
         self.grey_patches = {}
         for task in self.variances.keys:
             bbox = self.variances.bar_axes[task].get_position()
@@ -1321,7 +1354,6 @@ class NormalHighlight:
                 saturation=10,
             )
 
-        # TODO: Slides the rectangles very fast ->
         for rectangle in self.grey_patches.values():
             rectangle.set_height(new_height)
 
@@ -1351,7 +1383,6 @@ class VariancesFlushHist:
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
-        # TODO: Animate ax motion
         for ith_task in range(self.n_tasks):
             task = self.variances.keys[ith_task]
             # Do your work
@@ -1480,7 +1511,6 @@ class VarianceTask:
         pass
 
     def __call__(self, i, fig, ax, last_animation):
-        # TODO: Animate ax motion
         for ith_task in range(self.nth_task):
             task = self.variances.keys[ith_task]
             # Do your work
@@ -1726,8 +1756,6 @@ class SimpleLinearScale:
         if self.initialized:
             return
 
-        # TODO: Create new rectangles
-        # For any label not in self.noise_types:
         self.white_box = patches.Rectangle(
             (0.15, 0),
             1,
@@ -2263,7 +2291,13 @@ class AddModel:
         self.line = self.comparison.ax.plot(x, self.y, color=self.color)[0]
 
         self.name_label = self.comparison.ax.text(
-            self.mean, -1, self.name, ha="center", va="bottom", fontsize=16
+            self.mean,
+            -1,
+            self.name,
+            ha="center",
+            va="bottom",
+            fontsize=16,
+            clip_on=True,
         )
         self.comparison.ax.set_ylim(0, 1)
 
@@ -2439,7 +2473,7 @@ class ComputePAB:
             center_width=self.whisker_width * 1.5,
         )
 
-        self.pab_label.set_position((pab, 0.75))
+        self.pab_label.set_position((pab, PAB))
 
     def get_standardized_data(self):
 
@@ -2673,6 +2707,14 @@ class PABScatter:
         ax.set_xlim(-simulation.stds[0] * 5, simulation.stds[0] * 5)
         ax.set_ylim(-0.5, 20.5)
         despine(self.ax)
+        self.estimator_name = "IdealEst"
+        self.y_label = "{estimator} simulations"
+        self.y_label_object = ax.set_ylabel(
+            "",
+            fontsize=18,
+            horizontalalignment="right",
+            y=0.9,
+        )
 
         self.scatter = SimulationScatter(
             ax,
@@ -2682,9 +2724,20 @@ class PABScatter:
         )
         self.scatter.redraw()
 
+    def open(self, i, n_frames):
+        y_label = self.y_label.format(estimator=self.estimator_name)
+        i = int(numpy.round(linear(0, len(y_label), i, n_frames)))
+        self.y_label_object.set_text(y_label[:i])
+
+    def simulate(self, i, n_frames, model, lines):
+        self.scatter.simulate(i, n_frames, model, lines)
+
+    def redraw(self):
+        self.scatter.redraw()
+
     def set_pab(self, pab):
         self.simulation.set_pab(pab)
-        self.scatter.redraw()
+        self.redraw()
 
 
 class PABComparison:
@@ -2696,9 +2749,6 @@ class PABComparison:
         despine(self.ax)
 
     def set_test(self, test):
-        # TODO: Set ideal simulation when using ideal curves
-        # TODO: Clear axis when changing test
-
         # Trying to set the same test
         if self.test_viz is not None and self.test_viz.test is test:
             return
@@ -2706,6 +2756,7 @@ class PABComparison:
         # Test will be changed, clear axis from previous one
         if self.test_viz is not None:
             self.ax.clear()
+            despine(self.ax)
 
         if isinstance(test, AverageTest):
             self.test_viz = AverageTestViz(
@@ -2735,7 +2786,10 @@ class PABPanel:
     def __init__(self, fig, ax, simulation, n_rows=20):
         self.ax = ax
         self.dists = PABDists(
-            fig.add_axes([0.1, 0.35, 0.2, 0.12], zorder=zorder()), simulation, scale=0.7
+            # fig.add_axes([0.1, 0.35, 0.2, 0.12], zorder=zorder()), simulation, scale=0.7
+            fig.add_axes([0, 0, 0, 0], zorder=zorder()),
+            simulation,
+            scale=0.7,
         )
         self.scatter = PABScatter(
             fig.add_axes([0.1, 0.0, 0.2, 0.45], zorder=zorder.get() - 1),
@@ -2748,12 +2802,50 @@ class PABPanel:
             n_rows,
         )
 
+    def open(self, i, n_frames):
+        figure_coords = self.get_figure_coords(self.pab)
+
+        initial_x = figure_coords[0]
+        initial_y = figure_coords[1]
+        initial_width = 0
+        initial_height = 0
+        end_height = 0.12
+        end_width = 0.2
+        end_y = initial_y - 0.05 - end_height
+
+        # Pull line down
+        if i < n_frames / 2:
+            x = initial_x
+            width = 0
+            y = linear(initial_y, end_y, i, n_frames / 2)
+            height = linear(initial_height, end_height, i, n_frames / 2)
+        # Open
+        else:
+            y = end_y
+            height = end_height
+            # x = linear(initial_x, end_x, i, n_frames / 2)
+            width = linear(initial_width, end_width, i - n_frames / 2, n_frames / 2)
+            x = initial_x - width / 2
+
+        self.dists.ax.set_position((x, y, width, height))
+
+        bbox = self.scatter.ax.get_position()
+        self.scatter.ax.set_position((x, bbox.y0, bbox.width, bbox.height))
+
+    def set_simulation(self, simulation):
+        self.scatter.simulation = simulation
+        self.comparison.simulation = simulation
+
     def set_test(self, test):
         self.comparison.set_test(test)
 
-    def set_pab(self, pab):
+    def get_figure_coords(self, pab):
         display_coords = self.ax.transData.transform((pab, 0))
-        figure_coords = self.ax.figure.transFigure.inverted().transform(display_coords)
+        return self.ax.figure.transFigure.inverted().transform(display_coords)
+
+    def set_pab(self, pab):
+        self.pab = pab
+        figure_coords = self.get_figure_coords(pab)
 
         center = figure_coords[0]
         top = figure_coords[1]
@@ -2870,15 +2962,11 @@ class SimulationAnimation:
         # self.plot.curves["ideal-pab"].set_pab(1)
         # self.plot.curves["biased-pab"].set_pab(1)
 
-        self.viz = PABPanel(fig, self.ax, self.biased_simulation)
+        self.viz = PABPanel(fig, self.ax, self.ideal_simulation)
         self.viz.set_pab(self.current_pab)
         # self.viz.set_test(self.plot.curves["biased-avg"].comparison_method)
 
         self.indicator = Indicator(self.ax)
-
-        print("formated")
-
-        # Create PABFrame and register to animation
 
         self.initialized = True
 
@@ -2886,7 +2974,7 @@ class SimulationAnimation:
         pass
 
     def leave(self):
-        pass
+        self(self.n_frames, None, None, None)
 
 
 class ShowPAB:
@@ -2900,7 +2988,6 @@ class ShowPAB:
         if self.initialized:
             return
 
-        # TODO: The simulation for this one should be normalized
         self.animation.ideal_simulation.set_pab(0.7)
         self.animation.biased_simulation.set_pab(0.7)
         self.models = []
@@ -2924,11 +3011,54 @@ class ShowPAB:
     def __call__(self, i, fig, ax, last_animation):
         for model in self.models:
             model(i, fig, ax, last_animation)
-        # TODO: - Increase size of ax from 0, opening from top
-        #       - Add line from top to tick of main plot
 
     def leave(self):
-        pass
+        self(self.n_frames, None, None, None)
+
+
+class OpenPAB:
+    def __init__(self, n_frames, animation):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.pab = self.animation.current_pab
+
+        self.show = ShowPAB(self.n_frames / 2, self.animation, self.pab)
+        self.show.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.animation.viz.open(i, self.n_frames)
+        if i > self.n_frames / 2:
+            self.show(i - self.n_frames / 2, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class OpenScatter:
+    def __init__(self, n_frames, animation):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.animation.viz.scatter.open(i, self.n_frames)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
 
 
 class MovePAB:
@@ -2948,28 +3078,27 @@ class MovePAB:
 
     def __call__(self, i, fig, ax, last_animation):
         pab = linear(self.old_pab, self.pab, i, self.n_frames)
-        # TODO: Inside simulation plot, update PAB plot, Simuls plot and current
-        #       comparison column
         self.animation.set_pab(pab)
 
     def leave(self):
-        pass
+        self(self.n_frames, None, None, None)
 
 
-class SimulationViz:
-    def __init__(self):
-        self.n_frames = 1
+class SetTest:
+    def __init__(self, n_frames, animation, plot, names):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.plot = plot
+        self.names = names
         self.initialized = False
-
-    def set_pab(self, pab):
-        pass
-        # self.pab_viz.set_pab(pab)
-        # self.simulation_viz.set_pab(pab)
-        # self.test_viz.set_pab(pab)
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
+
+        self.animation.viz.set_test(self.plot.curves[self.names[-1]].comparison_method)
+        # Reset indicator and comparison panel
+        self.animation.set_pab(self.animation.current_pab)
 
         self.initialized = True
 
@@ -2977,7 +3106,7 @@ class SimulationViz:
         pass
 
     def leave(self):
-        pass
+        self(self.n_frames, None, None, None)
 
 
 class ShowCurve:
@@ -3114,7 +3243,227 @@ class AdjustAverage:
         # TODO: Set simulations with Average tests and adjust delta based on new gamma
 
     def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class SwitchSimulation:
+    def __init__(self, n_frames, animation, names):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.names = names
+        self.estimator_name = "IdealEst"
+        self.initialized = False
+        self.ideal_names = ["oracle", "single"]
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.old_estimator_name = self.estimator_name
+
+        if self.names[-1] in self.ideal_names:
+            new_simulation = self.animation.ideal_simulation
+            self.estimator_name = "IdealEst"
+        else:
+            new_simulation = self.animation.biased_simulation
+            self.estimator_name = "FixHOptEst"
+
+        old_simulation = self.animation.viz.scatter.simulation
+
+        # Already current simulation, do nothing
+        if new_simulation is old_simulation:
+            self.n_frames = 0
+            self.initialized = True
+            return
+
+        self.old_simulation = copy.deepcopy(old_simulation)
+        self.new_simulation = copy.deepcopy(new_simulation)
+        self.new_simulation.set_pab(self.old_simulation.pab)
+        # Sort so that transition occurs are nearby data points
+        # NOTE: Bring back if using the switch simulation...
+        # for simul in [self.old_simulation, self.new_simulation]:
+        #     simul.mu_a = numpy.sort(simul.mu_a, axis=0)
+        #     simul.mu_b = numpy.sort(simul.mu_b, axis=0)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        simulation = self.animation.viz.scatter.simulation
+        simulation.mu_a = translate(
+            self.old_simulation.mu_a,
+            self.new_simulation.mu_a,
+            i,
+            self.n_frames,
+            saturation=4,
+        )
+        simulation.mu_b = translate(
+            self.old_simulation.mu_b,
+            self.new_simulation.mu_b,
+            i,
+            self.n_frames,
+            saturation=4,
+        )
+        self.animation.viz.scatter.redraw()
+
+        p = translate(0, 1, i, self.n_frames)
+        estimator_name = ""
+
+        for i in range(max(len(self.estimator_name), len(self.old_estimator_name))):
+            switch = numpy.random.random() < p
+            if switch and i < len(self.estimator_name):
+                estimator_name += self.estimator_name[::-1][i]
+            elif i < len(self.old_estimator_name):
+                estimator_name += self.old_estimator_name[::-1][i]
+
+        label = self.animation.viz.scatter.y_label.format(
+            estimator=estimator_name[::-1]
+        )
+        self.animation.viz.scatter.y_label_object.set_text(label)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+def create_curve_section(names, animation, plot, times, switch_simulation=[]):
+
+    # single will drop simulation
+
+    # avg will simulate back to 50, and turn to biased
+
+    #         SwitchSimulation(
+    #             FPS * 2,
+    #             FPS * 2,
+    #             animation,
+    #             ["oracle"],
+    #         ),
+
+    section = Section(
+        [MovePAB(FPS * times["move"], animation, pab=0.4)]
+        + switch_simulation
+        + [
+            SetTest(FPS * 2, animation, plot, names),
+            Still(FPS * 2),
+            ShowCurve(
+                FPS * times["pab_05"][0],
+                animation,
+                plot,
+                names,
+                pab=0.5,
+            ),
+            Still(FPS * times["pab_05"][1]),
+            ShowCurve(
+                FPS * times["pab_075"][0],
+                animation,
+                plot,
+                names,
+                pab=PAB,
+            ),
+            Still(FPS * times["pab_075"][1]),
+            ShowCurve(
+                FPS * times["pab_1"][0],
+                animation,
+                plot,
+                names,
+                pab=1,
+            ),
+            Still(FPS * times["pab_1"][1]),
+            DropTest(animation),
+        ]
+    )
+    return section
+
+
+class Simulate:
+    def __init__(self, n_frames, animation, models, rows, sample_size=None):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.models = models
+        self.sample_size = sample_size
+        self.rows = rows
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        if self.sample_size:
+            self.animation.viz.scatter.scatter.sample_size = self.sample_size
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        for model in self.models:
+            self.animation.viz.scatter.simulate(i, self.n_frames, model, self.rows)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class DropSampleSize:
+    def __init__(self, n_frames, animation, models, rows, sample_size):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.models = models
+        self.rows = rows
+        self.new_sample_size = sample_size
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        for model in self.models:
+            self.animation.viz.scatter.scatter.decrease_sample_size(
+                self.new_sample_size, i, self.n_frames, model, self.rows
+            )
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+        self.animation.viz.scatter.scatter.sample_size = self.new_sample_size
+
+
+class DropTest:
+    def __init__(self, animation):
+        self.n_frames = 0
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
         pass
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+        self.animation.indicator.show = False
+        self.animation.viz.set_test(None)
+
+
+class AdjustSampleSize:
+    def __init__(self, n_frames, animation, sample_size):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.sample_size = sample_size
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
 
 
 class Template:
@@ -3132,7 +3481,7 @@ class Template:
         pass
 
     def leave(self):
-        pass
+        self(self.n_frames, None, None, None)
 
 
 class Cover:
@@ -3201,30 +3550,203 @@ class Cover:
         self.affiliations_text.set_position((-1, -1))
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--start", default=0, type=int)
-    parser.add_argument("--end", default=-1, type=int)
-    parser.add_argument("--fps", default=60, choices=[2, 5, 10, 30, 60], type=int)
-    parser.add_argument("--output", default="mlsys2021.mp4", type=str)
-    parser.add_argument("--dpi", default=300, type=int)
-    parser.add_argument("--data-folder", default="~/Dropbox/Olympus-Data", type=str)
+def build_intro(data_folder):
+    sections = [
+        Cover(FPS * 30),
+        Black(FPS * 1),
+        # Intro
+        PapersWithCode(FPS * 5),
+    ]
+    for i in range(1, 76):
+        sections.append(NoisyPapersWithCode(max(int(FPS * (2 / i)), 1)))
 
-    options = parser.parse_args(argv)
+    for i in range(76, 1 - 1):
+        sections.append(NoisyPapersWithCode(max(int(FPS * (2 / i)), 1)))
 
-    width = 1280 / options.dpi
-    height = 720 / options.dpi
+    sections += [
+        Still(FPS * 2),
+        VarianceLabel(FPS * 10),
+        EstimatorLabel(FPS * 10),
+        ComparisonLabel(FPS * 20),
+        Zoom(FPS * 2),
+        Still(FPS * 5),
+    ]
 
-    variances = Variances(options.data_folder)
+    return Chapter("Intro", sections, pbar_position=0)
+
+
+def build_variances(data_folder):
+
+    # TODO: Zoom on variance estimator, (average estimator and comparison)
+    # Black(FPS * 0.25),
+    # 1. Variances section
+
+    variances = Variances(data_folder)
+
+    sections = [
+        variances,
+        # TODO: Make label appear 1 or 2 seconds before it starts raining.
+        #       Especially for the first one, weight inits.
+        # TODO: Add STD and Performances labels at the bottom.
+        VarianceSource(FPS * 10, variances, "vgg", "init_seed"),
+        # TODO: Maybe highlight median seed that is fixed for other noise types
+        VarianceSource(FPS * 5, variances, "vgg", "sampler_seed"),
+        VarianceSource(FPS * 5, variances, "vgg", "transform_seed"),
+        VarianceSource(FPS * 10, variances, "vgg", "bootstrapping_seed"),
+        VarianceSource(FPS * 2, variances, "vgg", "global_seed"),
+        VarianceSource(FPS * 2, variances, "vgg", "reference"),
+        VarianceSource(FPS * 20, variances, "vgg", "random_search"),
+        VarianceSource(FPS * 20, variances, "vgg", "noisy_grid_search"),
+        VarianceSource(FPS * 20, variances, "vgg", "bayesopt"),
+        VarianceSource(FPS * 20, variances, "vgg", "everything"),
+        # TODO:
+        VarianceSum(FPS * 15, variances),
+        VariancesHighlight(FPS * 10, variances, ["init_seed"], vbars=[]),
+        VariancesHighlight(FPS * 10, variances, ["bootstrapping_seed"], vbars=[]),
+        VariancesHighlight(
+            FPS * 10, variances, ["init_seed", "random_search"], vbars=[]
+        ),
+        Still(FPS * 5),
+        VarianceTask(FPS * 5, variances, "segmentation"),
+        VarianceTask(FPS * 5, variances, "bio-task2"),
+        VarianceTask(FPS * 5, variances, "bert-sst2"),
+        VarianceTask(FPS * 10, variances, "bert-rte"),
+        NormalHighlight(FPS * 5, variances),
+        Still(FPS * 1),
+        VariancesFlushHist(FPS * 1, variances),
+        Still(FPS * 5),
+        VariancesHighlight(FPS * 10, variances, ["init_seed"], vbars=[]),
+        VariancesHighlight(FPS * 10, variances, ["bootstrapping_seed"], vbars=[]),
+        VariancesHighlight(
+            FPS * 10, variances, ["init_seed", "random_search"], vbars=[]
+        ),
+    ]
+
+    return Chapter("Variances", sections, pbar_position=1)
+
+
+def build_estimators(data_folder):
+
     algorithms = Algorithms(FPS * 10)
+
     estimators = EstimatorSimulation()
+
     estimator_task = EstimatorTask(FPS * 2)
+
+    # TODO: Add paperswithcode transition, showing comparison moustachos
+    # 3. Comparison section
+
+    sections = [
+        # TODO: Add paperswithcode transition, showing estimation moustacho
+        # 2. Estimator section
+        # TODO: Come back to average estimator (average estimator and comparison)
+        algorithms,
+        # Move estimator to the left
+        # Add Ideal Algo1 (sweep highligh line above each line, and add O(T) on left
+        # when at it)
+        CodeHighlight(FPS * 5, lines=[1, 3]),
+        CodeHighlight(FPS * 2, lines=[5, 5]),
+        CodeHighlight(FPS * 2, lines=[6, 7]),
+        CodeHighlight(FPS * 2, lines=[8, 8]),
+        CodeHighlight(FPS * 2, lines=[10, 10], comment="O(T)", comment_side="left"),
+        CodeHighlight(FPS * 2, lines=[11, 11], comment="O(1)", comment_side="left"),
+        CodeHighlight(FPS * 2, lines=[12, 12]),
+        CodeHighlight(FPS * 2, lines=[14, 15], comment="O(k*T)", comment_side="left"),
+        CodeHighlight(FPS * 2, lines=[1, 20]),
+        BringInBiasedEstimator(FPS * 5, algorithms),
+        CodeHighlight(FPS * 2, lines=[1, 3]),
+        CodeHighlight(FPS * 2, lines=[5, 7]),
+        CodeHighlight(FPS * 3, lines=[8, 8], comment="O(T)", comment_side="right"),
+        CodeHighlight(FPS * 2, lines=[9, 9]),
+        CodeHighlight(FPS * 2, lines=[10, 11]),
+        CodeHighlight(FPS * 2, lines=[12, 12], comment="O(1)", comment_side="right"),
+        CodeHighlight(FPS * 2, lines=[13, 13]),
+        CodeHighlight(FPS * 2, lines=[15, 16], comment="O(k+T)", comment_side="right"),
+        CodeHighlight(FPS * 2, lines=[1, 20]),
+        # Add basic linear plot k* 100 vs k + 100
+        # Flush algos
+        SimpleLinearScale(FPS * 5),
+        MoveSimpleLinearScale(FPS * 2),
+        VarianceEquations(FPS * 5),
+        estimators,
+        Still(FPS * 10),
+        EstimatorIncreaseK(FPS * 10, estimators),
+        Still(FPS * 5),
+        EstimatorAdjustRho(FPS * 10, estimators, new_rho=2),
+        Still(FPS * 5),
+        estimator_task,
+        EstimatorShow(FPS * 1, estimators, estimator_task, "IdealEst($k$)"),
+        Still(FPS * 5),
+        EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, Init)"),
+        Still(FPS * 5),
+        EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, Data)"),
+        Still(FPS * 5),
+        EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, All)"),
+        Still(FPS * 10),
+    ]
+
+    return Chapter("Estimators", sections, pbar_position=2)
+
+
+def build_comparisons(data_folder):
+
     average_comparison = ComparisonMethod(FPS * 1, "Average", 0.1)
     pab_comparison = ComparisonMethod(FPS * 1, "Probability of outperforming", 0.5)
 
+    sections = [
+        average_comparison,
+        AddModel(FPS * 1, average_comparison, "A", mean=1, std=2),
+        AddModel(FPS * 1, average_comparison, "B", mean=-1, std=2),
+        ComputeAverages(FPS * 5, average_comparison),
+        pab_comparison,
+        AddModel(FPS * 1, pab_comparison, "A", mean=1, std=2),
+        AddModel(FPS * 1, pab_comparison, "B", mean=-1, std=2),
+        Still(FPS * 5),
+        ComputePAB(FPS * 5, pab_comparison),
+    ]
+
+    def change_model(a, b, modif=(0, 0), scale=(1, 1)):
+        return {
+            "mean": (a.mean + modif[0], b.mean + modif[1]),
+            "std": (a.std * scale[0], b.std * scale[(1)]),
+        }
+
+    modifs = [(0, 2), (0, -6), (-4, 0), (4, 4), (5, -5), (-5, 5)]
+
+    for modif in modifs:
+
+        sections.append(
+            ChangeDists(
+                FPS * 1,
+                [average_comparison, pab_comparison],
+                foo=functools.partial(change_model, modif=modif),
+            )
+        )
+
+    sections.append(Still(FPS * 5))
+
+    modifs = [(10, 2), (1 / 10, 1 / 2), (1 / 10, 1 / 10)]
+
+    for modif in modifs:
+
+        sections.append(
+            ChangeDists(
+                FPS * 1,
+                [average_comparison, pab_comparison],
+                foo=functools.partial(change_model, scale=modif),
+            )
+        )
+
+    sections.append(Still(FPS * 5))
+
+    return Chapter("Test methods", sections, pbar_position=3)
+
+
+def build_simulations(data_folder):
+
     simulation_plot = SimulationPlot(
-        # gamma=0.75, sample_size=50, n_points=100, simuls=1000
-        gamma=0.75,
+        # gamma=PAB, sample_size=50, n_points=100, simuls=1000
+        gamma=PAB,
         sample_size=50,
         n_points=100,
         simuls=1000,
@@ -3232,249 +3754,167 @@ def main(argv=None):
 
     simulation_animation = SimulationAnimation(simulation_plot)
 
-    animate = Animation(
-        [
-            Cover(FPS * 30),
-            Black(FPS * 1),
-            # Intro
-            PapersWithCode(FPS * 5),
-        ]
-        + [NoisyPapersWithCode(max(int(FPS * (2 / i)), 1)) for i in range(1, 76)]
-        + [NoisyPapersWithCode(max(int(FPS * (2 / i)), 1)) for i in range(76, 1, -1)]
-        + [
-            Still(FPS * 2),
-            VarianceLabel(FPS * 10),
-            EstimatorLabel(FPS * 10),
-            ComparisonLabel(FPS * 20),
-            Zoom(FPS * 2),
-            Still(FPS * 5),
-            # TODO: Zoom on variance estimator, (average estimator and comparison)
-            # Black(FPS * 0.25),
-            # 1. Variances section
-            variances,
-            # TODO: Make label appear 1 or 2 seconds before it starts raining.
-            #       Especially for the first one, weight inits.
-            # TODO: Add STD and Performances labels at the bottom.
-            VarianceSource(FPS * 10, variances, "vgg", "init_seed"),
-            # TODO: Maybe highlight median seed that is fixed for other noise types
-            VarianceSource(FPS * 5, variances, "vgg", "sampler_seed"),
-            VarianceSource(FPS * 5, variances, "vgg", "transform_seed"),
-            VarianceSource(FPS * 10, variances, "vgg", "bootstrapping_seed"),
-            VarianceSource(FPS * 2, variances, "vgg", "global_seed"),
-            VarianceSource(FPS * 2, variances, "vgg", "reference"),
-            VarianceSource(FPS * 20, variances, "vgg", "random_search"),
-            VarianceSource(FPS * 20, variances, "vgg", "noisy_grid_search"),
-            VarianceSource(FPS * 20, variances, "vgg", "bayesopt"),
-            VarianceSource(FPS * 20, variances, "vgg", "everything"),
-            # TODO:
-            VarianceSum(FPS * 15, variances),
-            VariancesHighlight(FPS * 10, variances, ["init_seed"], vbars=[]),
-            VariancesHighlight(FPS * 10, variances, ["bootstrapping_seed"], vbars=[]),
-            VariancesHighlight(
-                FPS * 10, variances, ["init_seed", "random_search"], vbars=[]
-            ),
-            Still(FPS * 5),
-            VarianceTask(FPS * 5, variances, "segmentation"),
-            VarianceTask(FPS * 5, variances, "bio-task2"),
-            VarianceTask(FPS * 5, variances, "bert-sst2"),
-            VarianceTask(FPS * 10, variances, "bert-rte"),
-            # Still(FPS * 5),  # TODO: Replace with NormalHighlight before flushing them
-            NormalHighlight(FPS * 5, variances),
-            Still(FPS * 1),
-            VariancesFlushHist(FPS * 1, variances),
-            Still(FPS * 5),
-            VariancesHighlight(FPS * 10, variances, ["init_seed"], vbars=[]),
-            VariancesHighlight(FPS * 10, variances, ["bootstrapping_seed"], vbars=[]),
-            VariancesHighlight(
-                FPS * 10, variances, ["init_seed", "random_search"], vbars=[]
-            ),
-            # TODO: Add paperswithcode transition, showing estimation moustacho
-            # 2. Estimator section
-            # TODO: Come back to average estimator (average estimator and comparison)
-            algorithms,
-            # Move estimator to the left
-            # Add Ideal Algo1 (sweep highligh line above each line, and add O(T) on left
-            # when at it)
-            CodeHighlight(FPS * 5, lines=[1, 3]),
-            CodeHighlight(FPS * 2, lines=[5, 5]),
-            CodeHighlight(FPS * 2, lines=[6, 7]),
-            CodeHighlight(FPS * 2, lines=[8, 8]),
-            CodeHighlight(FPS * 2, lines=[10, 10], comment="O(T)", comment_side="left"),
-            CodeHighlight(FPS * 2, lines=[11, 11], comment="O(1)", comment_side="left"),
-            CodeHighlight(FPS * 2, lines=[12, 12]),
-            CodeHighlight(
-                FPS * 2, lines=[14, 15], comment="O(k*T)", comment_side="left"
-            ),
-            CodeHighlight(FPS * 2, lines=[1, 20]),
-            # TODO: Add FixedHOptEst Algo1
-            BringInBiasedEstimator(FPS * 5, algorithms),
-            CodeHighlight(FPS * 2, lines=[1, 3]),
-            CodeHighlight(FPS * 2, lines=[5, 7]),
-            CodeHighlight(FPS * 3, lines=[8, 8], comment="O(T)", comment_side="right"),
-            CodeHighlight(FPS * 2, lines=[9, 9]),
-            CodeHighlight(FPS * 2, lines=[10, 11]),
-            CodeHighlight(
-                FPS * 2, lines=[12, 12], comment="O(1)", comment_side="right"
-            ),
-            CodeHighlight(FPS * 2, lines=[13, 13]),
-            CodeHighlight(
-                FPS * 2, lines=[15, 16], comment="O(k+T)", comment_side="right"
-            ),
-            CodeHighlight(FPS * 2, lines=[1, 20]),
-            # Add basic linear plot k* 100 vs k + 100
-            # Flush algos
-            SimpleLinearScale(FPS * 5),
-            MoveSimpleLinearScale(FPS * 2),
-            VarianceEquations(FPS * 5),
-            estimators,
-            Still(FPS * 10),
-            EstimatorIncreaseK(FPS * 10, estimators),
-            Still(FPS * 5),
-            EstimatorAdjustRho(FPS * 10, estimators, new_rho=2),
-            Still(FPS * 5),
-            estimator_task,
-            EstimatorShow(FPS * 1, estimators, estimator_task, "IdealEst($k$)"),
-            Still(FPS * 5),
-            EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, Init)"),
-            Still(FPS * 5),
-            EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, Data)"),
-            Still(FPS * 5),
-            EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, All)"),
-            Still(FPS * 10),
-            # TODO: Add paperswithcode transition, showing comparison moustachos
-            # 3. Comparison section
-        ]
-        + [
-            Chapter(
-                [
-                    average_comparison,
-                    AddModel(FPS * 1, average_comparison, "A", mean=1, std=2),
-                    AddModel(FPS * 1, average_comparison, "B", mean=-1, std=2),
-                    ComputeAverages(FPS * 5, average_comparison),
-                    pab_comparison,
-                    AddModel(FPS * 1, pab_comparison, "A", mean=1, std=2),
-                    AddModel(FPS * 1, pab_comparison, "B", mean=-1, std=2),
-                    Still(FPS * 5),
-                    ComputePAB(FPS * 5, pab_comparison),
-                ]
-                + [
-                    ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
-                    for foo in [
-                        lambda a, b: {
-                            "mean": (a.mean, b.mean + 2),
-                            "std": (a.std, b.std),
-                        },
-                        lambda a, b: {
-                            "mean": (a.mean, b.mean - 6),
-                            "std": (a.std, b.std),
-                        },
-                        lambda a, b: {
-                            "mean": (a.mean - 4, b.mean),
-                            "std": (a.std, b.std),
-                        },
-                        lambda a, b: {
-                            "mean": (a.mean + 4, b.mean + 4),
-                            "std": (a.std, b.std),
-                        },
-                        lambda a, b: {
-                            "mean": (a.mean + 5, b.mean - 5),
-                            "std": (a.std, b.std),
-                        },
-                        lambda a, b: {
-                            "mean": (a.mean - 5, b.mean + 5),
-                            "std": (a.std, b.std),
-                        },
-                    ]
-                ]
-                + [Still(FPS * 5)]
-                + [
-                    ChangeDists(FPS * 1, [average_comparison, pab_comparison], foo=foo)
-                    for foo in [
-                        lambda a, b: {
-                            "mean": (a.mean, b.mean),
-                            "std": (a.std * 10, b.std * 2),
-                        },
-                        lambda a, b: {
-                            "mean": (a.mean, b.mean),
-                            "std": (a.std / 10, b.std / 2),
-                        },
-                        lambda a, b: {
-                            "mean": (a.mean, b.mean),
-                            "std": (a.std / 10, b.std / 10),
-                        },
-                    ]
-                ]
-                + [Still(FPS * 5)]
-            )
-        ]
-        + [
-            # Simulations
-            Chapter(
-                [
+    sections = [
+        simulation_animation,
+        Still(FPS * 5),
+        OpenPAB(FPS * 2, simulation_animation),
+        Still(FPS * 1),
+        OpenScatter(FPS * 0.5, simulation_animation),
+        Simulate(FPS * 2, simulation_animation, models=["B"], rows=[0]),
+        Still(FPS * 1),
+        Simulate(FPS * 1, simulation_animation, models=["A"], rows=[0]),
+        Still(FPS * 1),
+        Simulate(FPS * 1, simulation_animation, models=["B", "A"], rows=[1]),
+    ]
+
+    for i in range(1, 10):
+        sections.extend(
+            [
+                Simulate(
+                    int(FPS * 1 / i),
                     simulation_animation,
-                    Still(FPS * 5),
-                    ShowPAB(FPS * 5, simulation_animation, pab=0.7),
-                    MovePAB(FPS * 2, simulation_animation, pab=0.4),
-                    ShowH0(FPS * 5, simulation_animation),
-                    MovePAB(FPS * 2, simulation_animation, pab=0.5),
-                    ShowH01(FPS * 5, simulation_animation),
-                    MovePAB(FPS * 2, simulation_animation, pab=0.75),
-                    ShowH1(FPS * 5, simulation_animation),
-                    MovePAB(FPS * 2, simulation_animation, pab=1),
-                    Still(FPS * 2),
-                ]
-                + sum(
-                    [
-                        [
-                            MovePAB(FPS * 1, simulation_animation, pab=0.4),
-                            ShowCurve(
-                                FPS * 1,
-                                simulation_animation,
-                                simulation_plot,
-                                names,
-                                pab=0.5,
-                            ),
-                            Still(FPS * 5),
-                            ShowCurve(
-                                FPS * 1,
-                                simulation_animation,
-                                simulation_plot,
-                                names,
-                                pab=0.75,
-                            ),
-                            Still(FPS * 5),
-                            ShowCurve(
-                                FPS * 1,
-                                simulation_animation,
-                                simulation_plot,
-                                names,
-                                pab=1,
-                            ),
-                            Still(FPS * 5),
-                        ]
-                        for names in [
-                            ["oracle"],
-                            ["single"],
-                            ["ideal-avg", "biased-avg"],
-                            ["ideal-pab", "biased-pab"],
-                        ]
-                    ],
-                    [],
-                )
-                + [
-                    Still(FPS * 5),
-                    AdjustAverage(FPS * 5, simulation_animation),
-                    Still(FPS * 5),
-                ]
-                # AdjustDelta(delta=<what value to make it equivalent to pab?>)
-            ),
-            # 4. Summary with stat test example
-        ],
+                    models=["B", "A"],
+                    rows=[i * 2],
+                ),
+                Simulate(
+                    int(FPS * 1 / i),
+                    simulation_animation,
+                    models=["B", "A"],
+                    rows=[i * 2 + 1],
+                ),
+            ]
+        )
+
+    sections += [
+        Still(FPS * 5),
+        MovePAB(FPS * 2, simulation_animation, pab=0.4),
+        MovePAB(FPS * 2, simulation_animation, pab=1),
+        MovePAB(FPS * 2, simulation_animation, pab=0.4),
+        ShowH0(FPS * 5, simulation_animation),
+        MovePAB(FPS * 2, simulation_animation, pab=0.5),
+        ShowH01(FPS * 5, simulation_animation),
+        MovePAB(FPS * 2, simulation_animation, pab=PAB),
+        ShowH1(FPS * 5, simulation_animation),
+        MovePAB(FPS * 2, simulation_animation, pab=1),
+        Still(FPS * 2),
+        create_curve_section(
+            ["oracle"],
+            simulation_animation,
+            simulation_plot,
+            times={
+                "move": 1,
+                "pab_05": (1, 5),
+                "pab_075": (1, 5),
+                "pab_1": (1, 5),
+            },
+        ),
+        create_curve_section(
+            ["single"],
+            simulation_animation,
+            simulation_plot,
+            times={
+                "move": 1,
+                "pab_05": (1, 5),
+                "pab_075": (1, 5),
+                "pab_1": (1, 5),
+            },
+            switch_simulation=[
+                Still(FPS * 2),
+                DropSampleSize(
+                    FPS * 2,
+                    simulation_animation,
+                    models=["B", "A"],
+                    rows=[0, -1],
+                    sample_size=1,
+                ),
+                Still(FPS * 2),
+            ],
+        ),
+        create_curve_section(
+            ["ideal-avg", "biased-avg"],
+            simulation_animation,
+            simulation_plot,
+            times={
+                "move": 1,
+                "pab_05": (1, 5),
+                "pab_075": (1, 5),
+                "pab_1": (1, 5),
+            },
+            switch_simulation=[
+                Still(FPS * 2),
+                SwitchSimulation(1, simulation_animation, ["biased-avg"]),
+                Simulate(
+                    FPS * 2,
+                    simulation_animation,
+                    models=["A", "B"],
+                    rows=[0, -1],
+                    sample_size=50,
+                ),
+            ],
+        ),
+        create_curve_section(
+            ["ideal-pab", "biased-pab"],
+            simulation_animation,
+            simulation_plot,
+            times={
+                "move": 1,
+                "pab_05": (1, 5),
+                "pab_075": (1, 5),
+                "pab_1": (1, 5),
+            },
+        ),
+        Still(FPS * 5),
+        # AdjustGamma(FPS * 5, simulation_animation, gamma=0.9),
+        Still(FPS * 5),
+        # AdjustSampleSize(FPS * 5, simulation_animation, sample_size=1000),
+        AdjustAverage(FPS * 5, simulation_animation),
+        Still(FPS * 5),
+    ]
+
+    return Chapter("Simulations", sections, pbar_position=4)
+
+
+chapters = dict(
+    intro=build_intro,
+    variances=build_variances,
+    estimators=build_estimators,
+    comparisons=build_comparisons,
+    simulations=build_simulations,
+)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--start", default=0, type=int)
+    parser.add_argument("--end", default=-1, type=int)
+    parser.add_argument("--fps", default=60, choices=[2, 5, 10, 30, 60], type=int)
+    parser.add_argument("--chapters", nargs="*", choices=chapters.keys(), type=str)
+    # parser.add_argument("--output", default="mlsys2021.mp4", type=str)
+    parser.add_argument("--dpi", default=300, type=int)
+    parser.add_argument("--data-folder", default="~/Dropbox/Olympus-Data", type=str)
+
+    options = parser.parse_args(argv)
+
+    if options.chapters is None:
+        options.chapters = list(chapters.keys())
+
+    with Pool() as p:
+        p.starmap(create_video, [(chapter, options) for chapter in options.chapters])
+
+
+def create_video(chapter, options):
+
+    width = 1280 / options.dpi
+    height = 720 / options.dpi
+
+    animate = Animation(
+        [chapters[chapter](data_folder=options.data_folder)],
         width,
         height,
         start=options.start * FPS,
         fps=options.fps,
     )
+
     total_time = int(animate.n_frames / FPS) + options.start
 
     end = total_time if options.end < 0 else options.end
@@ -3482,7 +3922,6 @@ def main(argv=None):
 
     animate.end = end * FPS
 
-    # TODO: Make it start from options.start
     frames = (end - options.start) * options.fps
 
     anim = FuncAnimation(
@@ -3501,7 +3940,7 @@ def main(argv=None):
     )
 
     animate.fig.set_size_inches(width, height, True)
-    anim.save(options.output, writer=writer, dpi=options.dpi)
+    anim.save(f"{chapter}.mp4", writer=writer, dpi=options.dpi)
 
 
 if __name__ == "__main__":

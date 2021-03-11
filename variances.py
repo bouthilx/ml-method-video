@@ -280,7 +280,7 @@ def load_data(root):
 
     start = time.time()
     for key, name in case_studies.items():
-        print(f"Loading {key}")
+        # print(f"Loading {key}")
         data[key] = {
             "variance": load_variance_results(name + "-var", var_root),
             "hpo": load_hpo_results(name + "-hpo", hpo_root),
@@ -288,7 +288,7 @@ def load_data(root):
         }
 
     elapsed_time = time.time() - start
-    print(f"It took {elapsed_time}s to load all data.")
+    # print(f"It took {elapsed_time}s to load all data.")
 
     return data
 
@@ -361,7 +361,7 @@ def load_variances(data):
     start = time.time()
     variances = {}
     for key, case_data in data.items():
-        print(f"Computing variances for {key}")
+        # print(f"Computing variances for {key}")
         case_variances = dict()
         variances[key] = case_variances
         max_epoch = int(case_data["variance"].epoch.max())
@@ -394,7 +394,7 @@ def load_variances(data):
                 seeds = list(
                     hpo_data[objectives[key]].dropna(dim="seed", how="all").seed.values
                 )
-                print(len(seeds))
+                # print(len(seeds))
                 hpo_data = hpo_data.sel(seed=seeds)
                 thresh = min(len(seeds), 15)
                 order = list(
@@ -424,7 +424,7 @@ def load_variances(data):
             case_variances[hpo] = test_regret.to_numpy()
 
     elapsed_time = time.time() - start
-    print(f"It took {elapsed_time}s to compute variances.")
+    # print(f"It took {elapsed_time}s to compute variances.")
 
     return variances
 
@@ -674,7 +674,7 @@ if __name__ == "__main__":
             sns.despine(ax=ax, left=True)
             ax.get_yaxis().set_visible(False)
 
-        print(LABELS[name])
+        # print(LABELS[name])
         ax.text(0.5, 0.98, LABELS[name], ha="center", transform=ax.transAxes)
         ax.tick_params(axis="both", which="both", length=0)
         # ax.set_facecolor('.95')

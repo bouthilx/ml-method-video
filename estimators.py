@@ -132,14 +132,14 @@ def load_data(root):
 
     start = time.time()
     for key, name in case_studies.items():
-        print(f"Loading {key}")
+        # print(f"Loading {key}")
         data[key] = {
             "variance": load_variance_results(name + "-var", var_root),
             "simul": load_simul_results(name + "-simul", simul_root),
         }
 
     elapsed_time = time.clock() - start
-    print(f"It took {elapsed_time}s to load all data.")
+    # print(f"It took {elapsed_time}s to load all data.")
 
     return data
 
@@ -150,7 +150,7 @@ def cum_argmin(x):
     """
     minima = numpy.minimum.accumulate(x, axis=0)
     diff = numpy.diff(minima, axis=0)
-    jumps = numpy.vstack(numpy.arange(x.shape[0]) for _ in range(x.shape[1])).T
+    jumps = numpy.vstack([numpy.arange(x.shape[0]) for _ in range(x.shape[1])]).T
     jumps[1:, :] *= diff != 0
     jumps = numpy.maximum.accumulate(jumps, axis=0)
     return jumps
@@ -336,7 +336,7 @@ def get_timings(estimator, budgets):
 def get_est_stats(data, estimator, budgets, tasks=TASKS):
     stats = {}
     for task in tasks:
-        print(f"Computing stats for {estimator} on {task}")
+        # print(f"Computing stats for {estimator} on {task}")
 
         case_data = data[task]["simul"]["random_search"]
         stats[task] = ESTIMATE[estimator](case_data, estimator, task, budgets)

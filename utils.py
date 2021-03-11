@@ -16,8 +16,12 @@ def translate(a, b, step, steps, saturation=10):
 
 def despine(ax):
     sns.despine(ax=ax, bottom=True, left=True)
-    ax.get_xaxis().set_visible(False)
-    ax.get_yaxis().set_visible(False)
+    # for side in ["top", "right", "bottom", "left"]:
+    #     ax.spines[side].set_visible(False)
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
+    ax.get_xaxis().set_ticks([])
+    ax.get_yaxis().set_ticks([])
 
 
 def plot_line(

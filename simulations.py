@@ -6,7 +6,7 @@ import seaborn as sns
 from matplotlib.lines import Line2D
 from matplotlib import patches
 import matplotlib.cm
-from utils import adjust_line, plot_line
+from utils import adjust_line, plot_line, linear
 from moustachos import h_moustachos, adjust_h_moustachos
 
 
@@ -62,6 +62,10 @@ def percentile_bootstrap(pa, pb, alpha=0.05, bootstraps=None):
 class Simulations:
     def __init__(self, simulations):
         self.simulations = simulations
+
+    @property
+    def sample_size(self):
+        return next(iter(self.simulations.values())).sample_size
 
     def simulate(self):
         for simulation in self.simulations.values():
@@ -199,6 +203,10 @@ class TTest:
 class SimulationScatter:
     def __init__(self, ax, simulation, n_rows, colors=None):
         self.simulation = simulation
+        self.sample_size = simulation.sample_size
+        self.ys = dict()
+        for key in "AB":
+            self.ys[key] = numpy.ones(simulation.mu_a.shape) * -100
         self.n_rows = n_rows
         self.scatters = {}
         for name in "AB":
@@ -214,9 +222,41 @@ class SimulationScatter:
                     color=colors[name] if colors else None,
                 )
 
+    def simulate(self, i, n_frames, key, lines):
+        idx = int(numpy.round(linear(0, self.simulation.sample_size, i, n_frames)))
+        if lines[-1] == -1:
+            lines.pop(-1)
+            assert lines[0] < self.n_rows
+            lines += list(range(lines[0], self.n_rows))
+        for line in lines:
+            line = self.n_rows - line - 1
+            self.ys[key][:idx, line] = line
+        # TODO: Replace row in _get_row_y() by a matrix of shape
+        #       (sample_size, simuls)
+        #       When called, move down random points, otherwise they have y=-nrows
+        #       so that they are out of figure
+        #       We could simply take one point by one, since they should be in random order
+        #       Just be careful if simulation was sorted before by SwitchSimulation
+        self.update_scatter()
+
+    def decrease_sample_size(self, new_sample_size, i, n_frames, key, lines):
+        idx = int(
+            numpy.round(
+                linear(self.simulation.sample_size, new_sample_size, i, n_frames)
+            )
+        )
+        if lines[-1] == -1:
+            lines.pop(-1)
+            assert lines[0] < self.n_rows
+            lines += list(range(lines[0], self.n_rows))
+        for line in lines:
+            line = self.n_rows - line - 1
+            self.ys[key][idx:, line] = -100
+        self.update_scatter()
+
     def _get_row_y(self, row, model):
         # NOTE: B is above A
-        return row + (0.25 if model == "B" else -0.25)
+        return self.ys[model][:, row] + (0.25 if model == "B" else -0.25)
 
     def redraw(self):
         self.update_scatter()
@@ -225,9 +265,10 @@ class SimulationScatter:
         scatter_data = []
         for simulation in range(self.n_rows):
             for name in "AB":
-                x = getattr(self.simulation, f"mu_{name.lower()}")[:, simulation]
+                x = getattr(self.simulation, f"mu_{name.lower()}")[
+                    : self.sample_size, simulation
+                ]
                 y = self._get_row_y(simulation, name)
-                y = [y] * len(x)
                 self.scatters[name][simulation].set_offsets(list(zip(x, y)))
 
 
@@ -288,7 +329,10 @@ class AverageTestViz:
             else:
                 row["decision"].set_color(tab10(3))  # red
 
-            diff = max(A.mean() - B.mean(), 1e-5)
+            diff = max(
+                A[: self.test.sample_size].mean() - B[: self.test.sample_size].mean(),
+                1e-5,
+            )
             adjust_h_moustachos(
                 row["whisker"],
                 x=min_x + diff / 2,
@@ -335,20 +379,21 @@ class PABTestViz:
         data_coords = self.ax.transData.inverted().transform(display_coords)
         min_x = data_coords[0]
 
-        delta = self.test.get_delta(self.simulation)
-
-        x_delta = min_x + delta
-        self.delta_label.set_position((x_delta, self.n_rows + 2))
-        self.delta_label.set_text("$\delta$")
-        self.delta_line.set_xdata([x_delta, x_delta])
-        self.delta_line.set_ydata([0, self.n_rows + 1])
+        self.null_line.set_positon(min_x + 0.5, self.n_rows + 1, text="0.5", pad_y=1)
+        self.gamma_line.set_positon(
+            min_x + self.test.gamma, self.n_rows + 1, text="$\gamma$", pad_y=1
+        )
 
         for simulation in range(self.n_rows):
             row = self.rows[simulation]
             A = self.simulation.mu_a[:, simulation]
             B = self.simulation.mu_b[:, simulation]
 
-            decision = self.test.single_test(self.simulation, A, B)
+            lower, pab, upper = self.test.get_pab_bounds(
+                self.simulation, A[:, None], B[:, None]
+            )
+            decision = (0.5 < lower) and (self.gamma <= upper)
+
             if decision:
                 row["decision"].set_color(tab10(2))  # green
             else:
@@ -357,11 +402,11 @@ class PABTestViz:
             diff = max(A.mean() - B.mean(), 1e-5)
             adjust_h_moustachos(
                 row["whisker"],
-                x=min_x + diff / 2,
+                x=pab,
                 y=self._get_row_y(simulation),
                 whisker_width=self.whisker_width,
-                whisker_length=diff / 2,
-                center_width=0,
+                whisker_length=(pab - lower, upper - pab),
+                center_width=self.whisker_width * 0.5,
             )
 
 
@@ -369,10 +414,23 @@ class AverageTest:
     PAPERS_WITH_CODE_THRESHOLD = 1.9952
 
     def __init__(self, gamma, sample_size=None):
-        self.gamma = gamma
+        # Hard set to 0.75 because that was the value used to compute the threshold based on
+        # paperswithcode data
+        self.gamma = 0.75  # gamma
         self.sample_size = sample_size
 
     def get_delta(self, simulation):
+
+        # delta = (
+        #     -scipy.stats.norm.isf(self.gamma)
+        #     * simulation.stds[0]
+        #     * numpy.sqrt(2)
+        #     * self.PAPERS_WITH_CODE_THRESHOLD
+        # )
+        # print("name", simulation.name)
+        # print("avg", delta)
+        # delta = scipy.stats.norm.cdf(delta / (simulation.stds[0] * numpy.sqrt(2)))
+        # print("pab", delta)
 
         # This is to convert the gamma into a threshold in original distribution
         # TODO: Where is this linear regression?
@@ -386,8 +444,12 @@ class AverageTest:
 
     def single_test(self, simulation, mu_a, mu_b):
         task_delta = self.get_delta(simulation)
-        r = (mu_a.mean() - mu_b.mean()) > task_delta
-        return (mu_a.mean() - mu_b.mean()) > task_delta
+        if self.sample_size is None:
+            sample_size = simulation.sample_size
+        else:
+            sample_size = self.sample_size
+
+        return (mu_a[:sample_size].mean() - mu_b[:sample_size].mean()) > task_delta
 
     def __call__(self, simulation):
         task_delta = self.get_delta(simulation)
@@ -411,7 +473,11 @@ class PABTest:
         self.beta = beta
         self.ci_type = ci_type
 
-    def __call__(self, simulation):
+    def single_test(self, simulation, mu_a, mu_b):
+        lower, _, upper = self.get_pab_bounds(simulation, mu_a[:, None], mu_b[:, None])
+        return (0.5 < lower) and (self.gamma <= upper)
+
+    def get_pab_bounds(self, simulation, mu_a, mu_b):
         p_a_b = (simulation.mu_a > simulation.mu_b).mean(0)
 
         if False:  # self.ci_type == "normal":
@@ -431,7 +497,14 @@ class PABTest:
             lower = numpy.percentile(stats, self.alpha / 2 * 100, axis=0)
             upper = numpy.percentile(stats, (1 - self.alpha / 2) * 100, axis=0)
 
-        return ((0.5 < lower).mean() * (self.gamma <= upper)).mean()
+        return lower, p_a_b, upper
+
+    def __call__(self, simulation):
+        lower, _, upper = self.get_pab_bounds(
+            simulation, simulation.mu_a, simulation.mu_b
+        )
+        # return ((0.5 < lower).mean() * (self.gamma <= upper)).mean()
+        return ((0.5 < lower) * (self.gamma <= upper)).mean()
 
 
 def compute_error_rates_theta(pab, delta_p, method, noise_source, *args):
@@ -995,7 +1068,9 @@ class SimulationPlot:
         self.curves["ideal-avg"] = Curve(
             ax,
             self.simulations["ideal"],
-            AverageTest(gamma=self.gamma),
+            AverageTest(
+                gamma=self.gamma, sample_size=self.simulations["ideal"].sample_size
+            ),
             n_points=self.n_points,
             color=self.colors["average"],
             linestyle="--",
@@ -1003,7 +1078,9 @@ class SimulationPlot:
         self.curves["biased-avg"] = Curve(
             ax,
             self.simulations["biased"],
-            AverageTest(gamma=self.gamma),
+            AverageTest(
+                gamma=self.gamma, sample_size=self.simulations["biased"].sample_size
+            ),
             n_points=self.n_points,
             color=self.colors["average"],
             linestyle="-",
