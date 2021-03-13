@@ -8,9 +8,15 @@ from matplotlib import patches
 import matplotlib.cm
 from utils import adjust_line, plot_line, linear
 from moustachos import h_moustachos, adjust_h_moustachos
+from scipy.interpolate import UnivariateSpline
+from utils import Cache, compute_identity, precision
+from tqdm import tqdm
+
+# from arch.bootstrap import IIDBootstrap
 
 
 tab10 = matplotlib.cm.get_cmap("tab10")
+cache = Cache("simulations.json", waittime=60)
 
 
 def p_threshold(x, mu, sigma):
@@ -36,27 +42,109 @@ def normal_ci(pa, pb, sample_size=None, alpha=0.05):
     )
 
 
-def percentile_bootstrap(pa, pb, alpha=0.05, bootstraps=None):
-    if len(pa.shape) < 2:
-        pa = pa.reshape((-1, 1))
-        pb = pb.reshape((-1, 1))
+def jackknife(foo, simulation):
+    a = simulation.mu_a[: simulation.sample_size, :]
+    b = simulation.mu_b[: simulation.sample_size, :]
 
-    sample_size = pa.shape[0]
-    simuls = pa.shape[1]
+    results = numpy.zeros(a.shape)
+    for i in range(a.shape[0]):
+        idx = list(range(0, i)) + list(range(i, a.shape[0]))
+        results[i] = foo(a[idx], b[idx])
+
+    return results
+
+
+def bootstrap(simulation, foo, n_bootstraps):
+    stats = numpy.zeros((n_bootstraps, simulation.simuls))
+    # for i in tqdm(range(n_bootstraps), desc="bootstrap"):  # simulation.sample_size):
+    for i in range(n_bootstraps):
+        idx = numpy.random.randint(
+            0, simulation.sample_size, size=simulation.sample_size
+        )
+        stats[i] = (simulation.mu_a[idx, :] > simulation.mu_b[idx, :]).mean(0)
+
+    return stats
+
+
+def normal_pab_ci(simulation, foo, alpha=0.05):
+    pa = simulation.mu_a[: simulation.sample_size, :]
+    pb = simulation.mu_b[: simulation.sample_size, :]
+
+    data = foo(pa, pb)
+    ci = scipy.stats.norm.isf(alpha / 2) * numpy.sqrt(
+        data * (1 - data) / simulation.sample_size
+    )
+    lower = numpy.clip(data - ci, a_min=0, a_max=1)
+    upper = numpy.clip(data + ci, a_min=0, a_max=1)
+    return lower, data, upper
+
+
+def percentile_bootstrap(simulation, foo, alpha=0.05, bootstraps=None):
+    pa = simulation.mu_a[: simulation.sample_size, :]
+    pb = simulation.mu_b[: simulation.sample_size, :]
 
     if bootstraps is None:
-        bootstraps = sample_size
+        bootstraps = simulation.sample_size
 
-    stats = numpy.zeros((bootstraps, simuls))
-    for i in range(bootstraps):
-        idx = numpy.random.randint(0, sample_size, size=sample_size)
-        stats[i] = (pa[idx, :] > pb[idx, :]).mean(0)
+    stats = bootstrap(simulation, foo, bootstraps)
 
     stats = numpy.sort(stats, axis=0)
     lower = numpy.percentile(stats, alpha / 2 * 100, axis=0)
     upper = numpy.percentile(stats, (1 - alpha / 2) * 100, axis=0)
 
-    return lower, upper
+    return lower, foo(pa, pb), upper
+
+
+def bca_bootstrap(simulation, foo, alpha=0.05, bootstraps=None):
+    pa = simulation.mu_a[: simulation.sample_size, :]
+    pb = simulation.mu_b[: simulation.sample_size, :]
+
+    jn = jackknife(foo, simulation)
+
+    ql = scipy.stats.norm.ppf(alpha)
+    qu = scipy.stats.norm.ppf(1 - alpha)
+
+    # Acceleration factor
+    num = numpy.sum((jn.mean(0) - jn) ** 3, axis=0)
+    den = 6 * numpy.sum((jn.mean(0) - jn) ** 2, axis=0) ** 1.5
+    ahat = num / den
+    # print("num", num)
+    # print("den", den)
+    # print("ahat", ahat)
+    assert ahat.shape == (simulation.simuls,)
+    ahat = numpy.nan_to_num(ahat, nan=0)
+    # Bias correction factor
+    # NOTE: store_theta is a group of bootrtsap
+    # here we should compare the bootstraped p_a_b with p_a_b itself
+    # again, take care to not compute mean on the simulation axis
+
+    if bootstraps is None:
+        bootstraps = simulation.sample_size
+
+    bootstraped = bootstrap(simulation, foo, bootstraps)
+
+    data = foo(pa, pb)
+
+    # print(data.shape)
+    # print(bootstraped.shape)
+    # print("mean", numpy.mean(bootstraped < data, axis=0))
+    zhat = scipy.stats.norm.ppf(numpy.mean(bootstraped < data, axis=0))
+    zhat = numpy.nan_to_num(zhat, neginf=-0.9999)
+    a1 = scipy.stats.norm.cdf(zhat + (zhat + ql) / (1 - ahat * (zhat + ql)))
+    a2 = scipy.stats.norm.cdf(zhat + (zhat + qu) / (1 - ahat * (zhat + qu)))
+    # print("boot", bootstraped[:, :5])
+    # print("a1", a1)
+    # print("a2", a2)
+    # print("zhat", zhat)
+    try:
+        lower = numpy.quantile(bootstraped, a1, axis=0)
+        upper = numpy.quantile(bootstraped, a2, axis=0)
+    except:
+        import pdb
+
+        pdb.set_trace()
+
+    return lower, data, upper
 
 
 class Simulations:
@@ -66,6 +154,10 @@ class Simulations:
     @property
     def sample_size(self):
         return next(iter(self.simulations.values())).sample_size
+
+    def set_sample_size(self, sample_size):
+        for simulation in self.simulations.values():
+            simulation.sample_size = sample_size
 
     def simulate(self):
         for simulation in self.simulations.values():
@@ -107,6 +199,18 @@ class Simulation:
         self.simuls = simuls
         self.set_pab(pab)
         self.simulate()
+
+    def get_hash(self):
+        return compute_identity(
+            dict(
+                name=self.name,
+                means=list(map(precision, self.means)),
+                stds=list(map(precision, self.stds)),
+                bias_stds=list(map(precision, self.bias_stds)),
+                sample_size=self.sample_size,
+                simuls=self.simuls,
+            )
+        )
 
     def simulate(self):
         # TODO: Need to verify is we simulate A > B or B > A
@@ -169,6 +273,11 @@ class TTest:
         self.alpha = alpha
         self.beta = beta
 
+    def get_hash(self):
+        return compute_identity(
+            dict(gamma=precision(self.gamma), alpha=self.alpha, beta=self.beta)
+        )
+
     def __call__(self, simulation):
         # This is to convert the gamma into a threshold in original distribution
         task_delta = (
@@ -180,9 +289,10 @@ class TTest:
             (quantile(1 - self.alpha) - quantile(self.beta)) * est_std / task_delta
         ) ** 2
         sample_size = max(int(numpy.ceil(sample_size)), 3)
+        # sample_size = max(sample_size, simulation.sample_size)
         se = numpy.sqrt(sample_size)
         # sample_size = 100
-        t = scipy.stats.t.ppf(1 - self.alpha, simulation.sample_size - 1)
+        t = scipy.stats.t.ppf(1 - self.alpha, sample_size - 1)
 
         diff = simulation.means[0] - simulation.means[1]
         p = scipy.stats.norm.cdf(diff / (simulation.stds[0] * numpy.sqrt(2)))
@@ -192,10 +302,7 @@ class TTest:
             diff,
             # est_std / numpy.sqrt(sample_size))
             numpy.sqrt(
-                (
-                    (simulation.stds ** 2) / simulation.sample_size
-                    + simulation.bias_stds ** 2
-                ).sum()
+                ((simulation.stds ** 2) / sample_size + simulation.bias_stds ** 2).sum()
             ),
         )
 
@@ -231,6 +338,7 @@ class SimulationScatter:
         for line in lines:
             line = self.n_rows - line - 1
             self.ys[key][:idx, line] = line
+            self.ys[key][idx:, line] = -100
         # TODO: Replace row in _get_row_y() by a matrix of shape
         #       (sample_size, simuls)
         #       When called, move down random points, otherwise they have y=-nrows
@@ -419,6 +527,11 @@ class AverageTest:
         self.gamma = 0.75  # gamma
         self.sample_size = sample_size
 
+    def get_hash(self):
+        return compute_identity(
+            dict(gamma=precision(self.gamma), sample_size=self.sample_size)
+        )
+
     def get_delta(self, simulation):
 
         # delta = (
@@ -467,35 +580,46 @@ class AverageTest:
 
 
 class PABTest:
-    def __init__(self, gamma, alpha=0.05, beta=0.05, ci_type="bootstrap"):
+    def __init__(
+        self, gamma, alpha=0.05, beta=0.05, ci_type="bootstrap"
+    ):  #  ci_type="bootstrap"):
         self.gamma = gamma
         self.alpha = alpha
         self.beta = beta
         self.ci_type = ci_type
+
+    def get_hash(self):
+        return compute_identity(
+            dict(
+                gamma=precision(self.gamma),
+                alpha=self.alpha,
+                beta=self.beta,
+                ci_type=self.ci_type,
+            )
+        )
 
     def single_test(self, simulation, mu_a, mu_b):
         lower, _, upper = self.get_pab_bounds(simulation, mu_a[:, None], mu_b[:, None])
         return (0.5 < lower) and (self.gamma <= upper)
 
     def get_pab_bounds(self, simulation, mu_a, mu_b):
-        p_a_b = (simulation.mu_a > simulation.mu_b).mean(0)
+        def simul_pab(mu_a, mu_b):
+            return (mu_a > mu_b).mean(0)
 
-        if False:  # self.ci_type == "normal":
-            ci = scipy.stats.norm.isf(self.alpha / 2) * numpy.sqrt(
-                p_a_b * (1 - p_a_b) / simulation.sample_size
-            )
-            lower = max(p_a_b - ci, 0)
-            upper = min(p_a_b + ci, 1)
+        p_a_b = simul_pab(simulation.mu_a, simulation.mu_b)
+
+        if self.ci_type == "normal":
+            lower, p_a_b, upper = normal_pab_ci(simulation, simul_pab, alpha=self.alpha)
+
         elif self.ci_type == "bootstrap":
-            stats = numpy.zeros((simulation.sample_size, simulation.simuls))
-            for i in range(simulation.sample_size):
-                idx = numpy.random.randint(
-                    0, simulation.sample_size, size=simulation.sample_size
-                )
-                stats[i] = (simulation.mu_a[idx, :] > simulation.mu_b[idx, :]).mean(0)
-            stats = numpy.sort(stats, axis=0)
-            lower = numpy.percentile(stats, self.alpha / 2 * 100, axis=0)
-            upper = numpy.percentile(stats, (1 - self.alpha / 2) * 100, axis=0)
+            lower, p_a_b, upper = percentile_bootstrap(
+                simulation, simul_pab, alpha=self.alpha, bootstraps=50
+            )
+
+        elif self.ci_type == "bca_bootstrap":
+            lower, p_a_b, upper = bca_bootstrap(
+                simulation, simul_pab, alpha=self.alpha, bootstraps=50
+            )
 
         return lower, p_a_b, upper
 
@@ -505,6 +629,10 @@ class PABTest:
         )
         # return ((0.5 < lower).mean() * (self.gamma <= upper)).mean()
         return ((0.5 < lower) * (self.gamma <= upper)).mean()
+
+
+# TODO: Save every tests in a json, so that we can avoid rerunning them
+# (simul_name (type, task), test args (gamma, sample_size))
 
 
 def compute_error_rates_theta(pab, delta_p, method, noise_source, *args):
@@ -537,232 +665,16 @@ def compute_error_rates_theta(pab, delta_p, method, noise_source, *args):
     return error_rates
 
 
-def compute_error_rates():
-    pass
-
-
-def comparison(noise_source):
-
-    fig = plt.figure(figsize=(WIDTH, HEIGHT))
-    axes = fig.subplots(ncols=1, nrows=1)
-    # axes = numpy.array([[axes]])
-
-    sns.despine(ax=axes)
-
-    methods = [
-        ("optimal", p_unpaired_t_test2, "ideal"),
-        ("single_point", p_unpaired_single_point, "biased"),
-        ("average", p_unpaired_averages2, "ideal"),
-        ("average", p_unpaired_averages2, "biased"),
-        ("ratio", p_unpaired_ratio, "ideal"),
-        ("ratio", p_unpaired_ratio, "biased"),
-        # ('t-test', p_unpaired_t_test2)
-    ]
-
-    # axes[-1, 0].set_xlabel('True differences'
-    nx = 30
-
-    colors = "#86aec3 #0f68a4 #a2cf7a #23901c #eb8a89 #d30a0c".split(" ")
-    colors = dict(
-        optimal="#377eb8", single_point="#4daf4a", average="#984ea3", ratio="#ff7f00"
-    )
-
-    # import sys
-    # sys.exit(0)
-
-    sample_size = 50
-    delta_p = 0.75
-    deltas = numpy.linspace(0.4, 1, nx)
-    simulations = {}
-
-    for name, method, noise_source in tqdm(methods, leave=False, desc="method"):
-
-        y = []
-        e = []
-        for delta in tqdm(deltas, leave=True, desc="delta"):
-            if name == "optimal":
-                error_rates = compute_error_rates_theta(
-                    delta, delta_p, method, "ideal", None
-                )
-            elif name == "ratio":
-                error_rates = compute_error_rates_theta(
-                    delta, delta_p, method, noise_source, sample_size, "normal"
-                )
-            else:
-                error_rates = compute_error_rates_theta(
-                    delta, delta_p, method, noise_source, sample_size
-                )
-            y.append(error_rates.mean() * 100)
-            e.append(error_rates.std() * 100)
-
-        if noise_source == "ideal" and name != "optimal":
-            linestyle = "--"
-        else:
-            linestyle = "-"
-
-        if name == "optimal" and noise_source == "ideal":
-            x = 0.65
-            x_65_idx = int((numpy.array(deltas) <= x).sum()) - 1
-            axes.annotate(
-                "Optimal\noracle",
-                xy=(x, y[x_65_idx]),
-                xycoords="data",
-                xytext=(0.56, 60),
-                textcoords="data",
-                arrowprops=dict(arrowstyle="-|>", facecolor="black"),
-                horizontalalignment="center",
-                verticalalignment="center",
-            )
-
-        plot_line(
-            axes, deltas, y, e, label=name, color=colors[name], linestyle=linestyle
-        )
-
-    # legend = axes.legend(bbox_to_anchor=(0., 1., 1.0, .102), loc='lower left',
-    #                      ncol=len(methods), mode="expand", borderaxespad=0., frameon=False)
-
-    x = 0.11
-    y = 0.95
-    axes.text(x, y, "IdealEst", transform=fig.transFigure)
-    axes.text(x + 0.12, y, "FixHOptEst", transform=fig.transFigure)
-    axes.text(x + 0.3, y, "Comparison Methods", transform=fig.transFigure)
-
-    pad = 0.3
-    y -= 0.065 + 0.03
-    axes.text(x + pad, y, "Single point comparison", transform=fig.transFigure)
-    y -= 0.12
-    axes.text(
-        x + pad,
-        y,
-        "Average comparison thresholded based\non typical published improvement",
-        transform=fig.transFigure,
-    )
-    y -= 0.06
-    axes.text(
-        x + pad,
-        y,
-        "Proposed testing probability of improvement",
-        transform=fig.transFigure,
-    )
-
-    custom_lines = [
-        Line2D([0], [0], color="white"),  # sp ideal
-        Line2D([0], [0], color=colors["average"], lw=1.5, linestyle="--"),  # avg ideal
-        Line2D([0], [0], color=colors["ratio"], lw=1.5, linestyle="--"),  # p_ab ideal
-        Line2D(
-            [0], [0], color=colors["single_point"], lw=1.5, linestyle="-"
-        ),  # avg biased
-        Line2D([0], [0], color=colors["average"], lw=1.5, linestyle="-"),  # avg biased
-        Line2D([0], [0], color=colors["ratio"], lw=1.5, linestyle="-"),  # p_ab biased
-    ]
-
-    labels = [
-        "",  # sp ideal
-        "\n",  # avg ideal
-        "",  # p_ab ideal
-        "",  # sp biased
-        "\n",  # avg biased
-        "",  # p_ab biased
-    ]
-
-    # custom_lines = [Line2D([0], [0], color='white'), Line2D([0], [0], color='white')]
-    # labels = ['IdealEst', 'BiasedEst']
-    # for method in ['single_point', 'average', 'ratio']:
-    #     for noise_source in ['ideal', 'biased']:
-    #         if noise_source == 'ideal' and method == 'single_point':
-    #             line = Line2D([0], [0], color='white')
-    #             label = ''
-    #         elif noise_source == 'ideal':
-    #             line = Line2D([0], [0], color=colors[method], lw=1.5, linestyle='--')
-    #             label = method
-    #         else:
-    #             line = Line2D([0], [0], color=colors[method], lw=1.5, linestyle='-')
-    #             label = method
-    #         custom_lines.append(line)
-    #         labels.append(label)
-
-    legend = axes.legend(
-        custom_lines,
-        labels,
-        bbox_to_anchor=(0.0, 1, 0.28, 0.102),
-        loc="lower left",
-        # handletextpad=0.,
-        ncol=2,
-        mode="expand",
-        borderaxespad=0.0,
-        frameon=False,
-    )
-    # axes.add_artist(legend)
-
-    # colors = [
-    #     '#4cc04c',
-    #     '#1f77ba']
-    #'#86564b', '#e377c2', '#d62728']
-
-    # axes[0].barh(y_labels, yn, xerr=en, color=colors[:len(methods)], error_kw=dict(linewidth=0.8))
-    # axes[1].barh(y_labels, yp, xerr=ep, color=colors[:len(methods)], error_kw=dict(linewidth=0.8))
-
-    # axes[0].set_title('False Positives\n$\mu_a=\mu_b$')
-    # axes[1].set_title('False Negatives\n$\mu_a-\mu_b>\delta$')
-    # axes[0].text(-1, 0.65, 'BiasedEst()', transform=axes[0].transAxes)
-    # axes[0].text(-1, 0.20, 'IdealEst()', transform=axes[0].transAxes)
-
-    # axes[0].annotate(
-    #     'SDL', xy=(-0.5, 0.65), xytext=(-0.6, 0.65), xycoords='axes fraction',
-    #      fontsize=14*1.5, ha='center', va='bottom',
-    #      bbox=dict(boxstyle='square', fc='white'),
-    #      arrowprops=dict(arrowstyle='-[, widthB=5.0, lengthB=1.5', lw=2.0))
-
-    # axes[0].set_xlabel('')
-
-    # axes[-1, -1].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-
-    patch = patches.Rectangle(
-        (0.5, 0),
-        delta_p - 0.5,
-        100,
-        linewidth=1,
-        edgecolor="gainsboro",
-        facecolor="gainsboro",
-        zorder=-50,
-    )
-    axes.add_patch(patch)
-
-    x = 0.435
-    y = 50
-    axes.text(x, y, "$H_0$", va="center", ha="center")
-    axes.text(x, y - 10, "(lower=better)", va="center", ha="center", fontsize=6)
-
-    x = 0.81
-    y = 55
-    axes.text(x, y, "$H_1$", va="center", ha="center")
-    axes.text(x, y - 10, "(higher=better)", va="center", ha="center", fontsize=6)
-
-    x = 0.52
-    y = 85
-    axes.text(x, y, "$H_0$", va="bottom", ha="left")
-    axes.plot([x, x + 0.025], [y, y + 10], color="black", linewidth=1)
-    x = 0.56
-    axes.text(x, y, "$H_1$", va="bottom", ha="left")
-    axes.plot([x, x + 0.025], [y, y + 10], color="black", linewidth=1)
-
-    axes.set_ylabel("Rate of Detections", fontsize=24)
-    axes.set_xlabel("P(A > B)", fontsize=24)
-
-    # plt.show()
-    fig.set_size_inches(WIDTH, HEIGHT)
-    plt.savefig(f"error_rates_v2_methods_recommand_{noise_source}.png", dpi=300)
-    plt.savefig(f"error_rates_v2_methods_recommand_{noise_source}.pdf", dpi=300)
-
-
 def simulate_pab(pab, simulations, comparison_method, tasks=None):
+    pab = precision(pab, 3)
+
     if tasks is None:
         tasks = sorted(simulations.simulations.keys())
     simulations.set_pab(pab)
     detection_rates = numpy.zeros(len(tasks))
     for i, task in enumerate(tasks):
         simulation = simulations.get_task(task)
-        detection_rates[i] = comparison_method(simulation)
+        detection_rates[i] = cache.compute(simulation, comparison_method)
 
     detection_rates *= 100
 
@@ -795,11 +707,21 @@ class Curve:
         self.draw()
 
     def compute(self):
+        pabs = numpy.linspace(self.pabs.min(), self.pabs.max(), 50, endpoint=True)
         rates_and_errs = [
-            simulate_pab(pab, self.simulations, self.comparison_method)
-            for pab in self.pabs
+            simulate_pab(pab, self.simulations, self.comparison_method) for pab in pabs
         ]
-        self.rates, self.err = zip(*rates_and_errs)
+        rates, err = zip(*rates_and_errs)
+        self.rates = rates
+        self.err = err
+
+        # def smooth(y):
+        #     spl = UnivariateSpline(pabs, y)
+        #     spl.set_smoothing_factor(0.5)
+        #     return spl(self.pabs)
+
+        # self.rates = smooth(rates)
+        # self.err = smooth(err)
 
     def draw(self):
         index = numpy.searchsorted(self.pabs, self.pab) + 1
@@ -900,10 +822,12 @@ class SimulationPlot:
 
         x = 0.435
         y = 50
-        ax.text(x, y, "$H_0$", va="center", ha="center", fontsize=18)
-        ax.text(x, y - 10, "(lower=better)", va="center", ha="center", fontsize=14)
+        self.h0_text = ax.text(x, y, "$H_0$", va="center", ha="center", fontsize=18)
+        self.h0_lb_text = ax.text(
+            x, y - 10, "(lower=better)", va="center", ha="center", fontsize=14
+        )
 
-        patch = patches.Rectangle(
+        self.h01_rect = patches.Rectangle(
             (0.5, 0),
             self.gamma - 0.5,
             100,
@@ -912,31 +836,49 @@ class SimulationPlot:
             facecolor="gainsboro",
             zorder=-50,
         )
-        ax.add_patch(patch)
+        ax.add_patch(self.h01_rect)
+
+    def redraw_h01_rect(self):
+        self.h01_rect.set_width(self.gamma - 0.5)
 
     def add_h01(self, ax):
         x = 0.52
         y = 85
-        ax.text(x, y, "$H_0$", va="bottom", ha="left", fontsize=18)
-        ax.plot([x, x + 0.025], [y, y + 10], color="black", linewidth=1)
+        self.not_h0_text = ax.text(x, y, "$H_0$", va="bottom", ha="left", fontsize=18)
+        self.not_h0_strike = ax.plot(
+            [x, x + 0.025], [y, y + 10], color="black", linewidth=1
+        )[0]
 
         x = 0.56
-        ax.text(x, y, "$H_1$", va="bottom", ha="left", fontsize=18)
-        ax.plot([x, x + 0.025], [y, y + 10], color="black", linewidth=1)
+        self.not_h1_text = ax.text(x, y, "$H_1$", va="bottom", ha="left", fontsize=18)
+        self.not_h1_strike = ax.plot(
+            [x, x + 0.025], [y, y + 10], color="black", linewidth=1
+        )[0]
 
     def add_h1(self, ax):
-        x = 0.82
+        x = self.gamma + 0.07
         y = 55
-        ax.text(x, y, "$H_1$", va="center", ha="center", fontsize=18)
-        ax.text(x, y - 10, "(higher=better)", va="center", ha="center", fontsize=14)
+        self.h1_text = ax.text(x, y, "$H_1$", va="center", ha="center", fontsize=18)
+        self.h1_lb_text = ax.text(
+            x, y - 10, "(higher=better)", va="center", ha="center", fontsize=14
+        )
+
+    def redraw_h1(self):
+        x = self.gamma + 0.07
+        pos = self.h1_text.get_position()
+        self.h1_text.set_position((x, pos[1]))
+        pos = self.h1_lb_text.get_position()
+        self.h1_lb_text.set_position((x, pos[1]))
 
     def add_oracle_annotation(self, ax, pabs, y):
+        return
 
         # NOTE: y is based on oracle data.
         x = 0.63
         x_65_idx = numpy.searchsorted(pabs, x)
         # ax.scatter([x], [y[x_65_idx]], s=5, marker="+")
-        ax.annotate(
+        # self.optimal_oracle_text = ax.annotate(
+        self.optimal_oracle_text = matplotlib.text.Annotation(
             "Optimal\noracle",
             xy=(x, y[x_65_idx]),
             xycoords="data",
@@ -947,6 +889,7 @@ class SimulationPlot:
             verticalalignment="center",
             fontsize=14,
         )
+        ax.add_artist(self.optimal_oracle_text)
 
     def add_legend(self, ax, fontsize=18):
 
@@ -1047,8 +990,30 @@ class SimulationPlot:
             self.tasks, "biased", self.sample_size, self.simuls, pab=0.4
         )
 
+    def set_sample_size(self, sample_size):
+        self.sample_size = sample_size
+        for simulation in self.simulations.values():
+            simulation.set_sample_size(sample_size)
+
+    def set_gamma(self, gamma):
+        self.gamma = gamma
+        self.redraw_h01_rect()
+        self.redraw_h1()
+        for name in ["oracle", "ideal-pab", "biased-pab"]:
+            curve = self.curves[name]
+            curve.comparison_method.gamma = gamma
+            curve.compute()
+            curve.redraw()
+
+        # ax = self.optimal_oracle_text.axes
+        # self.optimal_oracle_text.remove()
+        # self.add_oracle_annotation(
+        #     ax, self.curves["oracle"].pabs, self.curves["oracle"].rates
+        # )
+
     def build_curves(self, ax):
         self.curves = {}
+        print("Creating oracle curve")
         self.curves["oracle"] = Curve(
             ax,
             self.simulations["ideal"],
@@ -1068,9 +1033,7 @@ class SimulationPlot:
         self.curves["ideal-avg"] = Curve(
             ax,
             self.simulations["ideal"],
-            AverageTest(
-                gamma=self.gamma, sample_size=self.simulations["ideal"].sample_size
-            ),
+            AverageTest(gamma=self.gamma),
             n_points=self.n_points,
             color=self.colors["average"],
             linestyle="--",
@@ -1078,13 +1041,12 @@ class SimulationPlot:
         self.curves["biased-avg"] = Curve(
             ax,
             self.simulations["biased"],
-            AverageTest(
-                gamma=self.gamma, sample_size=self.simulations["biased"].sample_size
-            ),
+            AverageTest(gamma=self.gamma),
             n_points=self.n_points,
             color=self.colors["average"],
             linestyle="-",
         )
+        print("Creating pab curve")
         self.curves["ideal-pab"] = Curve(
             ax,
             self.simulations["ideal"],
@@ -1093,6 +1055,7 @@ class SimulationPlot:
             color=self.colors["pab"],
             linestyle="--",
         )
+        print("Creating pab curve")
         self.curves["biased-pab"] = Curve(
             ax,
             self.simulations["biased"],
@@ -1101,3 +1064,9 @@ class SimulationPlot:
             color=self.colors["pab"],
             linestyle="-",
         )
+        print("done")
+
+    def redraw(self):
+        for curve in self.curves.values():
+            curve.compute()
+            curve.redraw()

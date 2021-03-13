@@ -1,5 +1,16 @@
+from collections import OrderedDict
+from datetime import datetime
 import numpy
 import seaborn as sns
+import hashlib
+import json
+import os
+
+
+def ornstein_uhlenbeck_step(mean, past_position, stability, standard_deviation):
+    return stability * (mean - past_position) + numpy.random.normal(
+        0, standard_deviation
+    )
 
 
 def sigmoid(t):
@@ -7,11 +18,18 @@ def sigmoid(t):
 
 
 def linear(a, b, step, steps):
+    if steps == 0:
+        return b
     return a + step / steps * (b - a)
 
 
 def translate(a, b, step, steps, saturation=10):
     return a + (sigmoid(step / steps * saturation) - 0.5) * 2 * (b - a)
+
+
+def show_text(obj, text, step, steps, min_i=0):
+    n = int(linear(min_i, len(text) + 1, step, steps))
+    obj.set_text(text[:n] + (" " * (len(text) - n)))
 
 
 def despine(ax):
@@ -134,3 +152,77 @@ class ZOrder:
 
     def get(self):
         return self.z
+
+
+def compute_identity(data, size=16):
+    dhash = hashlib.sha256()
+
+    for k, v in sorted(data.items()):
+        dhash.update(k.encode("utf8"))
+
+        if isinstance(v, (dict, OrderedDict)):
+            dhash.update(compute_identity(v, size).encode("utf8"))
+        else:
+            dhash.update(str(v).encode("utf8"))
+
+    return dhash.hexdigest()[:size]
+
+
+class Cache:
+    def __init__(self, cache_file, waittime=60):
+        self.cache_file = cache_file
+        self.last_update = None
+        self.waittime = waittime
+        self.load()
+        self.hit = 0
+        self.miss = 0
+
+    def _get_key(self, item):
+        simulation, test = item
+        sim_hash = simulation.get_hash()
+        test_hash = test.get_hash()
+        return f"{sim_hash}:{test_hash}"
+
+    def __contains__(self, item):
+        return self._get_key(item) in self._cache
+
+    def compute(self, simulation, test):
+        key = self._get_key((simulation, test))
+        if key not in self._cache:
+            self.miss += 1
+            result = test(simulation)
+            self.update(key, result)
+        else:
+            self.hit += 1
+            result = self._cache[key]
+
+        return result
+
+    def load(self):
+        if os.path.exists(self.cache_file):
+            with open(self.cache_file, "r") as f:
+                self._cache = json.load(f)
+        else:
+            self._cache = {}
+
+    def save(self):
+        tmp_file = self.cache_file + ".tmp"
+        with open(tmp_file, "w") as f:
+            json.dump(self._cache, f)
+        os.rename(tmp_file, self.cache_file)
+        print(f"hit {self.hit} {(self.hit / (self.hit + self.miss)) * 100:.1f}%")
+        print(f"miss {self.miss} {(self.miss / (self.hit + self.miss)) * 100:.1f}%")
+
+    @property
+    def delay(self):
+        return (datetime.now() - self.last_update).total_seconds()
+
+    def update(self, key, result):
+        self._cache[key] = result
+        if self.last_update is None or self.delay > self.waittime:
+            self.last_update = datetime.now()
+            self.save()
+
+
+def precision(number, decimals=3):
+    return float(numpy.format_float_scientific(number, precision=decimals - 1))
