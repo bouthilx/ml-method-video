@@ -20,16 +20,36 @@ def sigmoid(t):
 def linear(a, b, step, steps):
     if steps == 0:
         return b
-    return a + step / steps * (b - a)
+    return a + numpy.clip(step / steps, a_min=0, a_max=1) * (b - a)
 
 
 def translate(a, b, step, steps, saturation=10):
     return a + (sigmoid(step / steps * saturation) - 0.5) * 2 * (b - a)
 
 
-def show_text(obj, text, step, steps, min_i=0):
-    n = int(linear(min_i, len(text) + 1, step, steps))
-    obj.set_text(text[:n] + (" " * (len(text) - n)))
+def show_text(obj, text, step, steps, min_i=0, fill=True):
+    # TODO: Detect any latex $$ and do not count them, remove only
+    #       text within the $$ block.
+    text_length = len(text) - text.count("$")
+    n = int(linear(min_i, text_length + 1, step, steps))
+    new_text = text[:n]
+    while text[n : n + new_text.count("$")].count("$"):
+        new_text = text[n : n + new_text.count("$")]
+        n += len(new_text)
+        # n += new_text.count("$")
+    n += new_text.count("$")
+    new_text = text[:n]
+    if new_text.count("$") % 2 == 1:
+        if new_text[-1] == "$":
+            import pdb
+
+            pdb.set_trace()
+            new_text = new_text[:-1]
+        else:
+            new_text += "$"
+    if fill:
+        new_text += " " * (text_length - (n - new_text.count("$")))
+    obj.set_text(new_text)
 
 
 def despine(ax):

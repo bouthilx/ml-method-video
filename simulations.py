@@ -810,7 +810,7 @@ class SimulationPlot:
 
     def format_ax(self, ax):
         ax.set_ylabel("Rate of Detections", fontsize=24)
-        ax.set_xlabel("P(A > B)", fontsize=24)
+        ax.set_xlabel("$P(A > B)$", fontsize=24)
         ax.xaxis.set_label_coords(1.17, -0.025)
 
         ax.set_xlim(0.37, 1.02)
@@ -818,13 +818,13 @@ class SimulationPlot:
 
         sns.despine(ax=ax)
 
-    def add_h0(self, ax):
+    def add_h0(self, ax, subtitle="(lower=better)"):
 
         x = 0.435
         y = 50
         self.h0_text = ax.text(x, y, "$H_0$", va="center", ha="center", fontsize=18)
         self.h0_lb_text = ax.text(
-            x, y - 10, "(lower=better)", va="center", ha="center", fontsize=14
+            x, y - 10, subtitle, va="center", ha="center", fontsize=14
         )
 
         self.h01_rect = patches.Rectangle(
@@ -855,12 +855,12 @@ class SimulationPlot:
             [x, x + 0.025], [y, y + 10], color="black", linewidth=1
         )[0]
 
-    def add_h1(self, ax):
+    def add_h1(self, ax, subtitle="(higher=better)"):
         x = self.gamma + 0.07
         y = 55
         self.h1_text = ax.text(x, y, "$H_1$", va="center", ha="center", fontsize=18)
         self.h1_lb_text = ax.text(
-            x, y - 10, "(higher=better)", va="center", ha="center", fontsize=14
+            x, y - 10, subtitle, va="center", ha="center", fontsize=14
         )
 
     def redraw_h1(self):
@@ -1013,7 +1013,6 @@ class SimulationPlot:
 
     def build_curves(self, ax):
         self.curves = {}
-        print("Creating oracle curve")
         self.curves["oracle"] = Curve(
             ax,
             self.simulations["ideal"],
@@ -1046,7 +1045,6 @@ class SimulationPlot:
             color=self.colors["average"],
             linestyle="-",
         )
-        print("Creating pab curve")
         self.curves["ideal-pab"] = Curve(
             ax,
             self.simulations["ideal"],
@@ -1055,7 +1053,6 @@ class SimulationPlot:
             color=self.colors["pab"],
             linestyle="--",
         )
-        print("Creating pab curve")
         self.curves["biased-pab"] = Curve(
             ax,
             self.simulations["biased"],
@@ -1064,7 +1061,6 @@ class SimulationPlot:
             color=self.colors["pab"],
             linestyle="-",
         )
-        print("done")
 
     def redraw(self):
         for curve in self.curves.values():
