@@ -37,6 +37,7 @@ def moustachos(
     center_width=0,
     center_line_width=None,
     whisker_line_width=None,
+    **kwargs,
 ):
     if not isinstance(whisker_length, tuple):
         whisker_length = (whisker_length, whisker_length)
@@ -48,11 +49,13 @@ def moustachos(
             [x - whisker_width, x + whisker_width],
             [y - whisker_length[0], y - whisker_length[0]],
             color="black",
+            **kwargs,
         )[0]
         plots["top_whisker"] = ax.plot(
             [x - whisker_width, x + whisker_width],
             [y + whisker_length[1], y + whisker_length[1]],
             color="black",
+            **kwargs,
         )[0]
 
     if whisker_length[0] or whisker_length[1]:
@@ -60,6 +63,7 @@ def moustachos(
             [x, x],
             [y - whisker_length[0], y + whisker_length[1]],
             color="black",
+            **kwargs,
         )[0]
 
     if center_width:
@@ -68,6 +72,7 @@ def moustachos(
             [y, y],
             color="black",
             linewidth=3,
+            **kwargs,
         )[0]
 
     return plots
@@ -92,7 +97,7 @@ def adjust_h_moustachos(
         plots["left_whisker"].set_ydata([y - whisker_width, y + whisker_width])
         plots["right_whisker"].set_ydata([y - whisker_width, y + whisker_width])
 
-    if whisker_length[0] or whisker_length[1]:
+    if whisker_length[0] is not None or whisker_length[1] is not None:
         plots["whisker_body"].set_xdata([x - whisker_length[0], x + whisker_length[1]])
         plots["whisker_body"].set_ydata([y, y])
 
@@ -118,6 +123,9 @@ def h_moustachos(
     plots = {}
 
     if whisker_width:
+        print(x)
+        print(whisker_length[0])
+        print(whisker_length[0])
         plots["left_whisker"] = ax.plot(
             [x - whisker_length[0], x - whisker_length[0]],
             [y - whisker_width, y + whisker_width],
@@ -131,7 +139,7 @@ def h_moustachos(
             **kwargs,
         )[0]
 
-    if whisker_length[0] or whisker_length[1]:
+    if whisker_length[0] is not None or whisker_length[1] is not None:
         plots["whisker_body"] = ax.plot(
             [x - whisker_length[0], x + whisker_length[1]],
             [y, y],

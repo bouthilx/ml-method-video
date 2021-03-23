@@ -18,13 +18,25 @@ def sigmoid(t):
 
 
 def linear(a, b, step, steps):
-    if steps == 0:
+    if isinstance(steps, int) and steps == 0:
         return b
     return a + numpy.clip(step / steps, a_min=0, a_max=1) * (b - a)
 
 
 def translate(a, b, step, steps, saturation=10):
     return a + (sigmoid(step / steps * saturation) - 0.5) * 2 * (b - a)
+
+
+INVALID_END_MATH_CHAR = ["_"]
+
+
+def invalid_end_math_char(text):
+    if text[-1] in INVALID_END_MATH_CHAR:
+        return True
+    if "\gamm".startswith(text.split("$")[-1]):
+        return True
+
+    return False
 
 
 def show_text(obj, text, step, steps, min_i=0, fill=True):
@@ -40,6 +52,10 @@ def show_text(obj, text, step, steps, min_i=0, fill=True):
     n += new_text.count("$")
     new_text = text[:n]
     if new_text.count("$") % 2 == 1:
+        while n < len(text) and invalid_end_math_char(new_text):
+            n += 1
+            new_text = text[:n]
+        new_text = text[:n]
         if new_text[-1] == "$":
             import pdb
 
@@ -49,6 +65,7 @@ def show_text(obj, text, step, steps, min_i=0, fill=True):
             new_text += "$"
     if fill:
         new_text += " " * (text_length - (n - new_text.count("$")))
+    # print(text, new_text)
     obj.set_text(new_text)
 
 
@@ -160,8 +177,8 @@ def adjust_line(
 
 
 class ZOrder:
-    def __init__(self):
-        self.z = 1
+    def __init__(self, z=1):
+        self.z = z
 
     def __call__(self, inc=1):
         self.increase(inc)

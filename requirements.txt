@@ -6,3 +6,4 @@ tqdm
 xarray
 joblib
 sklearn
+moviepy

@@ -6,7 +6,7 @@ import seaborn as sns
 from matplotlib.lines import Line2D
 from matplotlib import patches
 import matplotlib.cm
-from utils import adjust_line, plot_line, linear
+from utils import adjust_line, plot_line, linear, VLineLabel
 from moustachos import h_moustachos, adjust_h_moustachos
 from scipy.interpolate import UnivariateSpline
 from utils import Cache, compute_identity, precision
@@ -54,21 +54,23 @@ def jackknife(foo, simulation):
     return results
 
 
-def bootstrap(simulation, foo, n_bootstraps):
-    stats = numpy.zeros((n_bootstraps, simulation.simuls))
+def bootstrap(simulation, mu_a, mu_b, foo, n_bootstraps, simuls=None):
+    if simuls is None:
+        simuls = simulation.simuls
+    stats = numpy.zeros((n_bootstraps, simuls))
     # for i in tqdm(range(n_bootstraps), desc="bootstrap"):  # simulation.sample_size):
     for i in range(n_bootstraps):
         idx = numpy.random.randint(
             0, simulation.sample_size, size=simulation.sample_size
         )
-        stats[i] = (simulation.mu_a[idx, :] > simulation.mu_b[idx, :]).mean(0)
+        stats[i] = (mu_a[idx, :] > mu_b[idx, :]).mean(0)
 
     return stats
 
 
-def normal_pab_ci(simulation, foo, alpha=0.05):
-    pa = simulation.mu_a[: simulation.sample_size, :]
-    pb = simulation.mu_b[: simulation.sample_size, :]
+def normal_pab_ci(simulation, mu_a, mu_b, foo, alpha=0.05):
+    pa = mu_a
+    pb = mu_b
 
     data = foo(pa, pb)
     ci = scipy.stats.norm.isf(alpha / 2) * numpy.sqrt(
@@ -79,14 +81,16 @@ def normal_pab_ci(simulation, foo, alpha=0.05):
     return lower, data, upper
 
 
-def percentile_bootstrap(simulation, foo, alpha=0.05, bootstraps=None):
-    pa = simulation.mu_a[: simulation.sample_size, :]
-    pb = simulation.mu_b[: simulation.sample_size, :]
+def percentile_bootstrap(
+    simulation, mu_a, mu_b, foo, alpha=0.05, bootstraps=None, simuls=None
+):
+    pa = mu_a
+    pb = mu_b
 
     if bootstraps is None:
         bootstraps = simulation.sample_size
 
-    stats = bootstrap(simulation, foo, bootstraps)
+    stats = bootstrap(simulation, pa, pb, foo, bootstraps, simuls=simuls)
 
     stats = numpy.sort(stats, axis=0)
     lower = numpy.percentile(stats, alpha / 2 * 100, axis=0)
@@ -472,7 +476,7 @@ class PABTestViz:
                 y=0,
                 whisker_width=0.01,
                 whisker_length=0.01,
-                center_width=0,
+                center_width=0.015,
                 clip_on=False,
             )
 
@@ -487,34 +491,37 @@ class PABTestViz:
         data_coords = self.ax.transData.inverted().transform(display_coords)
         min_x = data_coords[0]
 
-        self.null_line.set_positon(min_x + 0.5, self.n_rows + 1, text="0.5", pad_y=1)
-        self.gamma_line.set_positon(
+        self.null_line.set_position(min_x + 0.5, self.n_rows + 1, text="0.5", pad_y=1)
+        self.gamma_line.set_position(
             min_x + self.test.gamma, self.n_rows + 1, text="$\gamma$", pad_y=1
         )
 
         for simulation in range(self.n_rows):
             row = self.rows[simulation]
-            A = self.simulation.mu_a[:, simulation]
-            B = self.simulation.mu_b[:, simulation]
+            A = self.simulation.mu_a[: self.simulation.sample_size, simulation]
+            B = self.simulation.mu_b[: self.simulation.sample_size, simulation]
 
             lower, pab, upper = self.test.get_pab_bounds(
-                self.simulation, A[:, None], B[:, None]
+                self.simulation, A[:, None], B[:, None], ci_type="normal"
             )
-            decision = (0.5 < lower) and (self.gamma <= upper)
+
+            lower = max(lower, 0)
+            upper = min(upper, 1)
+
+            decision = (0.5 < lower) and (self.test.gamma <= upper)
 
             if decision:
                 row["decision"].set_color(tab10(2))  # green
             else:
                 row["decision"].set_color(tab10(3))  # red
 
-            diff = max(A.mean() - B.mean(), 1e-5)
             adjust_h_moustachos(
                 row["whisker"],
-                x=pab,
+                x=min_x + pab,
                 y=self._get_row_y(simulation),
                 whisker_width=self.whisker_width,
-                whisker_length=(pab - lower, upper - pab),
-                center_width=self.whisker_width * 0.5,
+                whisker_length=(max(pab - lower, 1e-5), max(upper - pab, 1e-5)),
+                center_width=self.whisker_width * 1.5,
             )
 
 
@@ -602,21 +609,32 @@ class PABTest:
         lower, _, upper = self.get_pab_bounds(simulation, mu_a[:, None], mu_b[:, None])
         return (0.5 < lower) and (self.gamma <= upper)
 
-    def get_pab_bounds(self, simulation, mu_a, mu_b):
+    def get_pab_bounds(self, simulation, mu_a, mu_b, ci_type=None):
         def simul_pab(mu_a, mu_b):
             return (mu_a > mu_b).mean(0)
 
         p_a_b = simul_pab(simulation.mu_a, simulation.mu_b)
 
-        if self.ci_type == "normal":
-            lower, p_a_b, upper = normal_pab_ci(simulation, simul_pab, alpha=self.alpha)
+        if ci_type is None:
+            ci_type = self.ci_type
 
-        elif self.ci_type == "bootstrap":
-            lower, p_a_b, upper = percentile_bootstrap(
-                simulation, simul_pab, alpha=self.alpha, bootstraps=50
+        if ci_type == "normal":
+            lower, p_a_b, upper = normal_pab_ci(
+                simulation, mu_a, mu_b, simul_pab, alpha=self.alpha
             )
 
-        elif self.ci_type == "bca_bootstrap":
+        elif ci_type == "bootstrap":
+            lower, p_a_b, upper = percentile_bootstrap(
+                simulation,
+                mu_a,
+                mu_b,
+                simul_pab,
+                alpha=self.alpha,
+                bootstraps=50,
+                simuls=mu_a.shape[1],
+            )
+
+        elif ci_type == "bca_bootstrap":
             lower, p_a_b, upper = bca_bootstrap(
                 simulation, simul_pab, alpha=self.alpha, bootstraps=50
             )
@@ -707,9 +725,10 @@ class Curve:
         self.draw()
 
     def compute(self):
-        pabs = numpy.linspace(self.pabs.min(), self.pabs.max(), 50, endpoint=True)
+        # pabs = numpy.linspace(self.pabs.min(), self.pabs.max(), 50, endpoint=True)
         rates_and_errs = [
-            simulate_pab(pab, self.simulations, self.comparison_method) for pab in pabs
+            simulate_pab(pab, self.simulations, self.comparison_method)
+            for pab in self.pabs
         ]
         rates, err = zip(*rates_and_errs)
         self.rates = rates

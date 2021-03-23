@@ -11,6 +11,89 @@ def rain_std(rect, data):
     rect.set_width(data.std())
 
 
+class RainedHistogram:
+    def __init__(
+        self,
+        scatter,
+        data,
+        y_min,
+        y_max,
+        y_sky,
+        steps,
+        delta,
+        block_height=1,
+        spacing=1,
+        subset=None,
+        n_columns=10,
+        marker_size=3,
+        sky_padding=1.1,
+        y_padding=0,
+    ):
+
+        self.scatter = scatter
+        self.data = data
+        self.y_min = y_min
+        self.y_max = y_max
+        self.y_sky = y_sky
+        self.steps = steps
+        self.delta = delta
+        self.block_height = block_height
+        self.spacing = spacing
+        self.subset = subset
+        self.n_columns = n_columns
+        self.marker_size = marker_size
+        self.sky_padding = sky_padding
+        self.y_padding = y_padding
+        self._step = 0
+
+        self.num = len(data)
+
+        self.data_steps = (numpy.arange(self.num)[::-1] - self.num).astype(
+            float
+        ) * spacing
+
+        self.normalized_data = copy.deepcopy(data)
+        self.normalized_data -= self.normalized_data.min()
+        self.normalized_data /= self.normalized_data.max()
+
+        columns = numpy.linspace(0, 1, self.n_columns)
+        data_col_idx = numpy.digitize(self.normalized_data, columns, right=False)
+        # Build bins (columns)
+        # Stack blocks in each bin
+
+        data_final_y = numpy.ones(self.num) * -1
+        for i in range(len(data)):
+            data_final_y[i] = (
+                data_col_idx[i] == data_col_idx[:i]
+            ).sum() * self.block_height
+
+        self.rescaled_x = data_col_idx / n_columns
+        self.rescaled_y = data_final_y / data_final_y.max() * (y_max - y_min) + y_min
+
+    def step(self, i):
+        while self._step < i:
+            self.data_steps += self.delta
+            self._step += 1
+
+    def get(self):
+        data_steps = numpy.clip(self.data_steps, a_min=0, a_max=self.steps)
+        rescaled_y = linear(
+            self.y_sky * self.sky_padding, self.rescaled_y, data_steps, self.steps
+        )
+        rescaled_y += self.y_padding
+        offsets = list(zip(self.rescaled_x, rescaled_y))
+
+        if self.subset is not None:
+            all_offsets = self.scatter.get_offsets()
+            all_offsets[self.subset] = offsets
+            offsets = all_offsets
+
+        self.scatter.set_offsets(offsets)
+        self.scatter.set_sizes([self.marker_size])
+
+        return self.data[data_steps == self.steps]
+
+
 def rained_histogram(
     scatter,
     data,
