@@ -2493,7 +2493,14 @@ class EstimatorShow:
 
 class ComparisonMethod:
     def __init__(
-        self, n_frames, method, x_padding, width=0.4, y_margin=0.5, height=0.2
+        self,
+        n_frames,
+        method,
+        x_padding,
+        width=0.4,
+        y_margin=0.5,
+        height=0.2,
+        despine=True,
     ):
         self.n_frames = n_frames
         self.method = method
@@ -2504,6 +2511,21 @@ class ComparisonMethod:
         self.y_margin = y_margin
         self.height = height
         self.xlim = (-10, 10)
+        self.despine = despine
+
+    def redraw(self):
+        if hasattr(self, "sample_size_panel"):
+            self.sample_size_panel.redraw()
+
+        if hasattr(self, "method_object"):
+            self.method_object.redraw()
+
+        if hasattr(self, "labels"):
+            for label in self.labels.values():
+                label.redraw()
+
+        for model in self.models:
+            model.redraw()
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
@@ -2524,7 +2546,8 @@ class ComparisonMethod:
             fontsize=32,
         )
 
-        despine(self.ax)
+        if self.despine:
+            despine(self.ax)
 
         self.initialized = True
 
@@ -2901,6 +2924,9 @@ class ComputePAB:
         self.comparison.method_object = self
         self.initialized = False
         self.whisker_width = 0.2
+        self.sample_size = 22
+        self.gamma = 0.75
+        self.y_offset = 0.15
 
     def redraw(self, pab=None):
         if pab is None:
@@ -2923,6 +2949,9 @@ class ComputePAB:
         )
 
         self.pab_label.set_position((pab, PAB))
+        self.gamma_tick.set_xdata([self.gamma, self.gamma])
+        x, y = self.gamma_label.get_position()
+        self.gamma_label.set_position((self.gamma, y))
 
     def get_standardized_data(self):
 
@@ -2936,7 +2965,7 @@ class ComputePAB:
     def compute_pab(self):
         data = self.get_standardized_data()
         pab_center = pab(data["A"], data["B"])
-        ci = normal_ci(data["A"], data["B"], sample_size=50)
+        ci = normal_ci(data["A"], data["B"], sample_size=self.sample_size)
         lower = max(pab_center - ci, 0)
         upper = min(pab_center + ci, 1)
         # lowers = []
@@ -2966,7 +2995,7 @@ class ComputePAB:
         center = self.comparison.x_padding + self.comparison.width / 2
         x = center - self.ax_width / 2
 
-        y = self.comparison.y_margin - 0.15
+        y = self.comparison.y_margin - self.y_offset
 
         self.ax_start_position = [x + self.ax_width / 2, y, 0, 0.1]
         self.ax_position = [x, y, self.ax_width, 0.1]
@@ -2975,6 +3004,9 @@ class ComputePAB:
             self.ax_position,
             zorder=zorder() - 2,
         )
+
+        self.comparison.pab_axe.xaxis.set_major_locator(plt.MaxNLocator(3))
+        self.comparison.pab_axe.xaxis.set_ticks([0, 0.5, 1])
 
         sns.despine(ax=self.comparison.pab_axe)
         # self.comparison.pab_axe.get_xaxis().set_smart_bounds(True)
@@ -3001,7 +3033,7 @@ class ComputePAB:
         )
 
         self.gamma_tick = self.comparison.pab_axe.plot(
-            [pab, pab], [-1000, -1000], color="black", clip_on=False
+            [self.gamma, self.gamma], [-1000, -1000], color="black", clip_on=False
         )[0]
 
         self.gamma_label = self.comparison.pab_axe.text(
@@ -3128,10 +3160,8 @@ class ChangeDists:
 
                 model.mean = ith_stats["mean"]
                 model.std = ith_stats["std"]
-                model.redraw()
 
-            if hasattr(comparison, "method_object"):
-                comparison.method_object.redraw()
+            comparison.redraw()
 
     def leave(self):
         self(self.n_frames, None, None, None)
@@ -4181,6 +4211,52 @@ class WriteText:
         self(self.n_frames, None, None, None)
 
 
+class SlideTitle:
+    def __init__(
+        self, n_frames, position, text, x_padding=0.02, y_padding=0.05, fontsize=34
+    ):
+        self.n_frames = n_frames
+        self.number = position
+        self.text = f"{position}. {text}"
+        self.x_padding = x_padding
+        self.y_padding = y_padding
+        self.fontsize = fontsize
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.ax = fig.add_axes([-1, -1, 0.1, 0.1], zorder=zorder())
+
+        self.text_object = self.ax.text(
+            self.x_padding,
+            1 - self.y_padding,
+            "",
+            va="top",
+            ha="left",
+            zorder=zorder(),
+            transform=fig.transFigure,
+            fontsize=self.fontsize,
+        )
+
+        self.text = WriteText(
+            self.text,
+            self.text_object,
+            min_i=int(numpy.log10(self.number)) + 1,
+            fill=False,
+        )
+        self.text.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.text(i, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
 class SectionTitle:
     def __init__(self, n_frames, title, fade_ratio=0.5, opacity=0.8):
         self.n_frames = n_frames
@@ -4227,7 +4303,10 @@ class SectionTitle:
         # )
 
         self.fade_out = FadeOut(
-            FADE_OUT / 2 * self.fade_ratio, self.ax, opacity=self.opacity, pause=False
+            int(FADE_OUT / 2 * self.fade_ratio),
+            self.ax,
+            opacity=self.opacity,
+            pause=False,
         )
         self.fade_out.initialize(fig, ax, last_animation)
 
@@ -5883,10 +5962,7 @@ class Cover:
         self.title = plt.text(
             0.5,
             0.7,
-            (
-                "Simulated Hyperparameter Optimization\n"
-                "for Statistical Tests in Machine Learning Benchmarks"
-            ),
+            ("Accounting for Variance\n" "in Machine Learning Benchmarks"),
             fontsize=30,
             horizontalalignment="center",
             transform=plt.gcf().transFigure,
@@ -5898,12 +5974,12 @@ class Cover:
         Brennan Nichyporuk$^{2,5,6}$, Justin Szeto$^{2,5,6}$, Naz Sepah$^{2,5,6}$,
         Edward Raff$^{7,8}$, Kanika Madan$^{1,2}$, Vikram Voleti$^{1,2}$,
         Samira Ebrahimi Kahou$^{2,6}$, Vincent Michalski$^{1,2}$, Dmitriy Serdyuk$^{1,2}$,
-        Tal Arbel$^{2,5,6,10}$, Christopher Pal$^{2,9,10,11}$, Gaël Varoquaux$^{2,6,12}$, Pascal Vincent$^{1,2,10,13}$"""
+        Tal Arbel$^{2,5,6,10}$, Christopher Pal$^{2,9,10,11}$, Gaël Varoquaux$^{2,6,12}$, Pascal Vincent$^{1,2,10}$"""
 
         affiliations = """
         $^1$Université de Montréal, $^2$Mila, $^3$Independant, $^4$IRIC, $^5$Center for Intelligent Machines,
         $^6$McGill University, $^7$Booz Allen Hamilton, $^8$University of Maryland, Baltimore County,
-        $^9$Polytechnique, $^{10}$CIFAR, $^{11}$Element AI, $^{12}$Inria, $^{13}$FAIR
+        $^9$Polytechnique, $^{10}$CIFAR, $^{11}$Element AI, $^{12}$Inria
         """
 
         self.authors_text = plt.text(

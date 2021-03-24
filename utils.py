@@ -24,6 +24,8 @@ def linear(a, b, step, steps):
 
 
 def translate(a, b, step, steps, saturation=10):
+    if isinstance(steps, (int, float)) and steps == 0:
+        return b
     return a + (sigmoid(step / steps * saturation) - 0.5) * 2 * (b - a)
 
 
@@ -138,14 +140,37 @@ def plot_err(
 
 class VLineLabel:
     def __init__(self, ax, fontsize=14, color="black", linestyle="--", **kwargs):
-        self.label = ax.text(0, 0, "", fontsize=fontsize, clip_on=False)
+        self.label = ax.text(0, 0, "", fontsize=fontsize, clip_on=False, **kwargs)
         self.line = ax.plot([], [], color=color, linestyle=linestyle, clip_on=False)[0]
 
-    def set_position(self, x, y, text, min_y=0, pad_y=1):
-        self.label.set_position((x, y + pad_y))
+    def set_position(self, x, y, text, min_y=0, pad_y=1, pos="top"):
+        if pos == "top":
+            self.label.set_position((x, y + pad_y))
+        elif pos == "bottom":
+            self.label.set_position((x, min_y - pad_y))
+        else:
+            raise NotImplementedError
         self.label.set_text(text)
         self.line.set_xdata([x, x])
         self.line.set_ydata([min_y, y])
+
+
+class HLineLabel:
+    def __init__(self, ax, fontsize=14, color="black", linestyle="--", **kwargs):
+        self.label = ax.text(0, 0, "", fontsize=fontsize, clip_on=False, **kwargs)
+        self.line = ax.plot([], [], color=color, linestyle=linestyle, clip_on=False)[0]
+
+    def set_position(self, x, y, text, min_x=0, pad_x=1, pos="left"):
+        if pos == "left":
+            self.label.set_position((min_x - pad_x, y))
+        elif pos == "right":
+            self.label.set_position((x + pad_x, y))
+        else:
+            raise NotImplementedError
+
+        self.label.set_text(text)
+        self.line.set_xdata([min_x, x])
+        self.line.set_ydata([y, y])
 
 
 def adjust_line(

@@ -12,6 +12,7 @@ import matplotlib.image as mpimg
 import matplotlib.animation as animation
 import numpy
 import scipy.stats
+import scipy.special
 import seaborn as sns
 from matplotlib import patches
 from matplotlib import pyplot as plt
@@ -25,7 +26,16 @@ from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 from moustachos import adjust_moustachos, moustachos, h_moustachos, adjust_h_moustachos
 from rained_histogram import rained_histogram, rain_std, RainedHistogram
-from utils import translate, linear, ZOrder, despine, show_text, ornstein_uhlenbeck_step
+from utils import (
+    translate,
+    linear,
+    ZOrder,
+    despine,
+    show_text,
+    ornstein_uhlenbeck_step,
+    VLineLabel,
+    HLineLabel,
+)
 from paperswithcode import PapersWithCodePlot, cum_argmax
 from variances import VariancesPlot
 from estimator_bubbles import EstimatorBubbles
@@ -44,11 +54,15 @@ from simulations import (
 )
 
 from mlsys2021 import (
+    zorder,
+    Parallel,
     Point,
     variances_colors,
     Animation,
+    Black,
     Cover,
     Chapter,
+    SlideTitle,
     ChapterTitle,
     Section,
     ComparisonMethod,
@@ -57,17 +71,23 @@ from mlsys2021 import (
     FPS,
     Still,
     FadeOut,
+    FADE_OUT,
     SectionTitle,
     WriteText,
     ToyPABSimulation,
     AddPABWhiskers,
     RemoveBlocks,
     ComputePAB,
+    AddPABWhiskers,
+    AddPABGamma,
 )
 
 
-zorder = ZOrder()
-numbering = ZOrder()
+numbering = ZOrder(-1)
+
+
+def quantile(p):
+    return numpy.sqrt(2) * scipy.special.erfinv(2 * p - 1)
 
 
 class VarianceSource:
@@ -91,7 +111,9 @@ class VarianceSource:
 
         width = (1 - 2 * self.x_margin - (self.total - 1) * self.x_padding) / self.total
         x = self.x_margin + (self.position - 1) * (width + self.x_padding)
-        self.ax = fig.add_axes([x, self.y_margin, width, self.y_height])
+        self.ax = fig.add_axes(
+            [x, self.y_margin, width, self.y_height], zorder=zorder()
+        )
         despine(self.ax)
         self.label = self.ax.text(
             x + width / 2,
@@ -101,6 +123,7 @@ class VarianceSource:
             fontsize=28,
             ha="center",
             va="bottom",
+            zorder=zorder(),
         )
 
         self.initialized = True
@@ -123,7 +146,7 @@ class WriteLabel:
             return
 
         self.write_text = WriteText(
-            self.variance_source.text, self.variance_source.label
+            self.variance_source.text, self.variance_source.label, fill=False
         )
         self.write_text.initialize(fig, ax, last_animation)
 
@@ -160,7 +183,7 @@ class WriteOther:
             zorder=zorder(),
         )
 
-        self.write_text = WriteText(self.text, text_object)
+        self.write_text = WriteText(self.text, text_object, fill=False)
         self.write_text.initialize(fig, ax, last_animation)
 
         self.initialized = True
@@ -214,7 +237,6 @@ class AddOrderSplit:
         self.panel = panel
         self.blocks = blocks
         self.row = row
-        print(self.row)
         self.new = new
         self.n_rows = 6
         if choices is None:
@@ -261,7 +283,14 @@ class AddOrderSplit:
 
         self.panel.texts[self.row] = self.text
         self.panel.rows[self.row] = self.panel.ax.text(
-            0, self.row + 0.5, "", clip_on=False, fontsize=24, ha="left", va="center"
+            0,
+            self.row + 0.5,
+            "",
+            clip_on=False,
+            fontsize=24,
+            ha="left",
+            va="center",
+            zorder=zorder(),
         )
 
         # self.panel.ax.set_xlim(-0.5, len(self.arch) - 0.5)
@@ -277,6 +306,7 @@ class AddOrderSplit:
                 va="center",
                 fontsize=32,
                 fontweight="bold",
+                zorder=zorder(),
             )
 
         self.initialized = True
@@ -284,7 +314,6 @@ class AddOrderSplit:
     def __call__(self, i, fig, ax, last_animation):
         text = self.panel.texts[self.row]
         nth = int(linear(0, len(text), i, self.n_frames))
-        print(text[:nth])
         self.panel.rows[self.row].set_text(text[:nth])
 
     def leave(self):
@@ -525,17 +554,6 @@ class AddBlocks:
         self.points[self.row] = points
         self.redraw()
 
-        # offsets = defaultdict(list)
-        # for j, point in enumerate(self.data[:n]):
-        #     offsets[point].append(j)
-
-        # for model in self.models:
-        #     print(list(zip(offsets[model], [1] * len(offsets[model]))))
-        #     if offsets[model]:
-        #         self.scatters[model].set_offsets(
-        #             list(zip(offsets[model], [1] * len(offsets[model])))
-        #         )
-
     def leave(self):
         self(self.n_frames, None, None, None)
 
@@ -631,7 +649,7 @@ class ComputeBootstrapPAB:
                 fontsize=16,
                 clip_on=False,
             )
-            self.blocks.pabs.append(WriteText(text, text_object))
+            self.blocks.pabs.append(WriteText(text, text_object, fill=False))
 
         self.sections = Section(self.blocks.pabs)
         self.sections.initialize(fig, ax, last_animation)
@@ -774,7 +792,7 @@ class AddLowerBound:
             clip_on=False,
         )
 
-        self.text = WriteText(f"${int(lower):2d}$", text_object)
+        self.text = WriteText(f"${int(lower):2d}$", text_object, fill=False)
         self.text.initialize(fig, ax, last_animation)
 
         self.line = SlideLine(
@@ -835,7 +853,7 @@ class AddUpperBound:
             clip_on=False,
         )
 
-        self.text = WriteText(f"${int(upper):2d}$", text_object)
+        self.text = WriteText(f"${int(upper):2d}$", text_object, fill=False)
         self.text.initialize(fig, ax, last_animation)
 
         self.line = SlideLine(
@@ -866,7 +884,7 @@ class AddCI:
         self.center_width = 0.5
         self.whisker_width = 0.25
         self.whisker_length = 5
-        self.y = -3
+        self.y = -2.5
         self.blocks = blocks
         self.initialized = False
 
@@ -881,9 +899,6 @@ class AddCI:
         self.whisker_length = (
             numpy.array([left_frac, right_frac]) * self.whisker_length * 2
         )
-
-        print(self.whisker_length.shape)
-        print(list(self.whisker_length * 0.01))
 
         self.moustacho_plot = h_moustachos(
             self.blocks.ax,
@@ -910,7 +925,8 @@ class AddCI:
 
         adjust_h_moustachos(
             self.moustacho_plot,
-            x=self.blocks.x_pab_sorted,
+            # x=self.blocks.x_pab_sorted,
+            x=self.blocks.x_pab_bounds,
             y=self.y,
             whisker_width=whisker_width,
             whisker_length=tuple(whisker_length),
@@ -919,7 +935,7 @@ class AddCI:
 
         if i == self.n_frames:
             self.blocks.ax.text(
-                self.blocks.x_pab_sorted - whisker_length[0],
+                self.blocks.x_pab_bounds - whisker_length[0],
                 self.y - 1,
                 f"${int(self.blocks.lower):2d}$",
                 ha="center",
@@ -928,7 +944,7 @@ class AddCI:
                 clip_on=False,
             )
             self.blocks.ax.text(
-                self.blocks.x_pab_sorted,
+                self.blocks.x_pab_bounds,
                 self.y - 1,
                 f"${int(self.blocks.data_pab):2d}$",
                 ha="center",
@@ -937,7 +953,7 @@ class AddCI:
                 clip_on=False,
             )
             self.blocks.ax.text(
-                self.blocks.x_pab_sorted + whisker_length[1],
+                self.blocks.x_pab_bounds + whisker_length[1],
                 self.y - 1,
                 f"${int(self.blocks.upper):2d}$",
                 ha="center",
@@ -950,18 +966,310 @@ class AddCI:
         self(self.n_frames, None, None, None)
 
 
+class AddStatLabel:
+    def __init__(self, comparison, key, label, x, y, y_offset=0):
+        self.n_frames = WriteText(label, None).n_frames
+        self.comparison = comparison
+        self.key = key
+        self.label = label
+        self.x = x
+        self.y = y
+        self.x_padding = 0.05
+        self.block_padding = 0.1
+        self.y_offset = y_offset
+        self.initialized = False
+
+    def redraw(self):
+        # get CI
+        pass
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        if not hasattr(self.comparison, "labels"):
+            self.comparison.labels = {}
+
+        self.comparison.labels[self.key] = self
+        ax_width = self.comparison.method_object.ax_width
+
+        center = self.comparison.x_padding + self.comparison.width / 2
+        x = center - ax_width / 2
+        x -= self.x_padding
+
+        y = (
+            self.comparison.y_margin
+            - self.comparison.method_object.y_offset
+            + self.y_offset
+        )
+
+        self.text_object = self.comparison.pab_axe.text(
+            self.x - self.block_padding,
+            self.y,
+            "",
+            ha="right",
+            va="center",
+            clip_on=False,
+            fontsize=18,
+            # transform=fig.transFigure,
+            zorder=zorder(),
+        )
+
+        self.scatter = self.comparison.pab_axe.scatter(
+            [self.x], [self.y], marker="s", s=100, color="red", clip_on=False
+        )
+
+        self.write_text = WriteText(self.label, self.text_object, fill=False)
+        self.write_text.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.write_text(i, fig, ax, last_animation)
+        self.redraw()
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class AddSignificanceLabel(AddStatLabel):
+    def __init__(self, comparison):
+        super(AddSignificanceLabel, self).__init__(
+            comparison, "significance", "Statistically Significant", x=0.5, y=-2.5
+        )
+
+    def redraw(self):
+        lower, pab, upper = self.comparison.method_object.pab
+
+        if 0.5 < lower:
+            self.scatter.set_color(variances_colors(2))  # green
+        else:
+            self.scatter.set_color(variances_colors(3))  # red
+
+
+class AddMeaningfullLabel(AddStatLabel):
+    def __init__(self, comparison):
+        super(AddMeaningfullLabel, self).__init__(
+            comparison, "meaningful", "Statistically Meaningful", x=0.75, y=-3.5
+        )
+
+    def redraw(self):
+        # TODO: Adjust self.x based on current PAB of gamma
+        gamma = self.comparison.method_object.gamma
+
+        self.text_object.set_position((gamma - self.block_padding, self.y))
+
+        offsets = self.scatter.get_offsets()
+
+        self.scatter.set_offsets([(gamma, offsets[0][1])])
+
+        lower, pab, upper = self.comparison.method_object.pab
+
+        if gamma <= upper:
+            self.scatter.set_color(variances_colors(2))  # green
+        else:
+            self.scatter.set_color(variances_colors(3))  # red
+
+
+class AdjustGamma:
+    def __init__(self, n_frames, comparison, gamma):
+        self.n_frames = n_frames
+        self.comparison = comparison
+        self.gamma = gamma
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.old_gamma = self.comparison.method_object.gamma
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        gamma = linear(self.old_gamma, self.gamma, i, self.n_frames)
+        self.comparison.method_object.gamma = gamma
+        self.comparison.redraw()
+        # self.comparison.labels['meaningful'].redraw()
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class AddSampleSizeLabel:
+    def __init__(self, comparison):
+        self.comparison = comparison
+        self.comparison.method_object.sample_size_label = self
+
+        self.template = "Sample Size = {sample_size:3d}"
+        self.update_text()
+
+        self.n_frames = WriteText(self.text, None).n_frames
+        self.initialized = False
+
+    def update_text(self):
+        self.text = self.template.format(
+            sample_size=self.comparison.method_object.sample_size
+        )
+
+    def redraw(self):
+        self.update_text()
+        self.text_object.set_text(self.text)
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        lower, pab, upper = self.comparison.method_object.pab
+
+        self.text_object = self.comparison.pab_axe.text(
+            1, 0, "", ha="left", va="center", clip_on=False, fontsize=18
+        )
+
+        self.write_text = WriteText(self.text, self.text_object, fill=False)
+        self.write_text.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.write_text(i, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class AdjustSampleSize:
+    def __init__(self, n_frames, comparison, sample_size):
+        self.n_frames = n_frames
+        self.comparison = comparison
+        self.sample_size = sample_size
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.old_sample_size = self.comparison.method_object.sample_size
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        sample_size = int(
+            linear(self.old_sample_size, self.sample_size, i, self.n_frames)
+        )
+        self.comparison.method_object.sample_size = sample_size
+        self.comparison.redraw()
+        self.comparison.method_object.sample_size_label.redraw()
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class AddSampleSizePlot:
+    def __init__(self, comparison, sample_size):
+        self.n_frames = 0
+        self.comparison = comparison
+        self.comparison.sample_size_panel = self
+        self.sample_size = sample_size
+        self.alpha = 0.05
+        self.beta = 0.05
+        self.min_x = 0.6
+        self.min_y = 0
+        self.pad_x = -0.02
+        self.pad_x_text = 0.05
+        self.pad_y = 10
+        self.initialized = False
+
+    @property
+    def gamma(self):
+        return self.comparison.method_object.gamma
+
+    def get_sample_size(self, p):
+        return numpy.ceil(
+            (quantile(1 - self.beta) + quantile(1 - self.alpha)) ** 2
+            / (6 * (0.5 - p) ** 2)
+        ).astype(int)
+
+    def redraw(self):
+        x = self.gamma
+        y = self.get_sample_size(self.gamma)
+
+        # Adjust model position
+        a = self.comparison.models[0]
+        b = self.comparison.models[1]
+        assert a.name == "A"
+        assert b.name == "B"
+        mean = scipy.stats.norm.isf(self.gamma) * a.std * numpy.sqrt(2)
+        diff = mean
+        b.mean = a.mean + diff
+
+        self.comparison.method_object.sample_size = y
+
+        # self.hline.set_position(
+        #     x, y, str(y), min_x=self.min_x + self.pad_x * 3, pad_x=-self.pad_x / 2
+        # )
+        self.hline.set_position(
+            1, y, str(y), min_x=x, pad_x=-self.pad_x / 2, pos="right"
+        )
+
+        self.vline.set_position(
+            x,
+            y,
+            f"{x:.1f}",
+            min_y=self.min_y - self.pad_y * 2,
+            pad_y=self.pad_y / 2,
+            pos="bottom",
+        )
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.sample_size.ax.set_xlabel("$\gamma$", fontsize=24)
+        self.sample_size.ax.set_ylabel("Sample size", fontsize=24)
+        self.sample_size.ax.xaxis.set_label_coords(0.5, -0.25)
+        # self.sample_size.ax.yaxis.set_label_coords(-0.1, 0.5)
+
+        for side in ["top", "right"]:
+            self.sample_size.ax.spines[side].set_visible(False)
+
+        pabs = numpy.linspace(self.min_x, 1, num=100)
+        sample_sizes = self.get_sample_size(pabs)
+        self.curve = self.sample_size.ax.plot(
+            pabs, sample_sizes, color=variances_colors(4)
+        )[0]
+        self.hline = HLineLabel(self.sample_size.ax, ha="left", va="center")
+        self.vline = VLineLabel(self.sample_size.ax, ha="center", va="top")
+
+        self.sample_size.ax.set_xlim((self.min_x + self.pad_x, 1))
+        self.sample_size.ax.set_ylim((0, max(sample_sizes)))
+
+        self.sample_size.ax.yaxis.set_ticks([0, 50, 100, 150])
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.redraw()
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
 def build_intro(position=numbering()):
 
-    comparison = ComparisonMethod(
-        FPS * 1, "", 0.2, width=0.6, y_margin=0.35, height=0.3
-    )
+    comparison = ComparisonMethod(0, "", 0.2, width=0.6, y_margin=0.35, height=0.3)
     # TODO: Add A and B labels, but wait before adding the curves
     sections = [
-        Cover(FPS * 10),
+        Cover(FPS * 5),
+        Black(FPS / 2),
         comparison,
         AddModel(FPS * 1, comparison, "A", mean=1, std=2, scale=0.85, fontsize=24),
         AddModel(FPS * 1, comparison, "B", mean=-1, std=2, scale=0.85, fontsize=24),
+        Still(FPS * 20),
+        FadeOut(FADE_OUT / 2),
     ]
+
+    return Chapter("Intro", sections, pbar_position=position)
 
     def change_model(a, b, modif=(0, 0), scale=(1, 1)):
         return {
@@ -997,6 +1305,7 @@ def build_intro(position=numbering()):
 
     sections += [
         Still(FPS * 5),
+        FadeOut(FADE_OUT / 2),
     ]
 
     return Chapter("Intro", sections, pbar_position=position)
@@ -1014,7 +1323,8 @@ def build_random(position=numbering()):
     splits_row = ZOrder(0)
 
     sections = [
-        ChapterTitle(FPS * 5, position, "Randomize, randomize, randomize"),
+        # ChapterTitle(FPS * 5, position, "Randomize, randomize, randomize"),
+        SlideTitle(FPS * 5, position, "Randomize, randomize, randomize"),
         init,
         WriteLabel(init),
         AddWeights(FPS * 1, init, row=weights_row()),
@@ -1045,6 +1355,7 @@ def build_random(position=numbering()):
         Still(FPS * 5),
         WriteOther(splits, "Hyperparameter optimization", 0.2, 0.1),
         Still(FPS * 5),
+        FadeOut(FADE_OUT / 2),
     ]
 
     return Chapter("Randomization", sections, pbar_position=position)
@@ -1056,11 +1367,11 @@ def build_pairing(position=numbering()):
     splits_example = VarianceSource("Data splits", position=2, total=3)
     example_row = ZOrder(0)
 
-    sections = [ChapterTitle(FPS * 5, position, "Paired comparisons")]
+    sections = [SlideTitle(FPS * 5, position, "Paired comparisons")]
+    #     ChapterTitle(FPS * 5, position, "Paired comparisons")]
 
     sections.append(
-        Chapter(
-            "",
+        Section(
             [
                 splits_example,
                 WriteLabel(splits_example),
@@ -1116,7 +1427,8 @@ def build_pairing(position=numbering()):
                     label="B",
                 ),
                 Still(FPS * 5),
-            ],
+                FadeOut(FADE_OUT / 2, height=0.88),
+            ]
         )
     )
 
@@ -1124,8 +1436,7 @@ def build_pairing(position=numbering()):
     order_row = ZOrder(0)
 
     sections.append(
-        Chapter(
-            "",
+        Section(
             [
                 order,
                 WriteLabel(order),
@@ -1152,7 +1463,8 @@ def build_pairing(position=numbering()):
                     label="B",
                 ),
                 Still(FPS * 5),
-            ],
+                FadeOut(FADE_OUT / 2, height=0.88),
+            ]
         )
     )
 
@@ -1161,8 +1473,7 @@ def build_pairing(position=numbering()):
     weights_row = ZOrder(0)
 
     sections.append(
-        Chapter(
-            "",
+        Section(
             [
                 init,
                 WriteLabel(init),
@@ -1183,7 +1494,8 @@ def build_pairing(position=numbering()):
                 AddWeights(int(FPS * 0.5), init, row=weights_row(), seed=2, label="A"),
                 AddWeights(int(FPS * 0.5), init, row=weights_row(), seed=2, label="B"),
                 Still(FPS * 5),
-            ],
+                FadeOut(FADE_OUT / 2, height=0.88),
+            ]
         )
     )
 
@@ -1191,11 +1503,10 @@ def build_pairing(position=numbering()):
 
 
 def build_compute_pab(position=numbering()):
-    comparison = ComparisonMethod(
-        FPS * 1, "", 0.25, width=0.5, y_margin=0.5, height=0.2
-    )
+    comparison = ComparisonMethod(0, "", 0.25, width=0.5, y_margin=0.5, height=0.2)
     sections = [
-        ChapterTitle(FPS * 5, position, "Computation of $P(A>B)$"),
+        # ChapterTitle(FPS * 5, position, "Computation of $P(A>B)$"),
+        SlideTitle(FPS * 5, position, "Computating $P(A>B)$"),
         comparison,
         AddModel(
             FPS * 1,
@@ -1224,6 +1535,7 @@ def build_compute_pab(position=numbering()):
         AddPABWhiskers(FPS * 5, comparison),
         Still(FPS * 2),
         RemoveBlocks(FPS * 5, comparison),
+        FadeOut(FADE_OUT / 2),
     ]
 
     return Chapter("Compute PAB", sections, pbar_position=position)
@@ -1240,7 +1552,8 @@ def build_conf_interval(position=numbering()):
     end_n_frames_per_move = 15
 
     sections = [
-        ChapterTitle(FPS * 5, position, "Computation of the confidence interval"),
+        # ChapterTitle(FPS * 5, position, "Computation of the confidence interval"),
+        SlideTitle(FPS * 5, position, "Computing the confidence interval"),
         blocks,
         SampleBlocks(
             blocks,
@@ -1274,19 +1587,159 @@ def build_conf_interval(position=numbering()):
         AddUpperBound(FPS * 1, blocks),
         AddCI(FPS * 1, blocks),
         Still(FPS * 5),
+        FadeOut(FADE_OUT / 2),
     ]
 
     return Chapter("Conf interval", sections, pbar_position=position)
 
 
 def build_statistical_test(position=numbering()):
-    sections = [ChapterTitle(FPS * 5, position, "Statistical test with $P(A>B)$")]
+    comparison = ComparisonMethod(0, "", 0.25, width=0.5, y_margin=0.5, height=0.2)
+
+    sections = [
+        # ChapterTitle(FPS * 5, position, "Statistical test with $P(A>B)$"),
+        SlideTitle(FPS * 5, position, "Statistical test with $P(A>B)$"),
+        comparison,
+        AddModel(FPS * 1, comparison, "A", mean=1, std=2, scale=0.85),
+        AddModel(FPS * 1, comparison, "B", mean=-1, std=2, scale=0.85),
+        ComputePAB(FPS * 5, comparison),
+        AddPABWhiskers(FPS * 5, comparison),
+        Still(FPS * 2),
+        AddPABGamma(FPS * 2, comparison),
+        Still(FPS * 5),
+        AddSignificanceLabel(comparison),
+        AddMeaningfullLabel(comparison),
+        Still(FPS * 20),
+    ]
+
+    # TODO: Add stat significance and meaningfull labels and blocks
+    # TODO: on redraw, change color if blocks is should be...
+    # TODO: Adjust movements
+    # TODO: Adjust sample size
+
+    def change_model(a, b, modif=(0, 0), scale=(1, 1)):
+        return {
+            "mean": (a.mean + modif[0], b.mean + modif[1]),
+            "std": (a.std * scale[0], b.std * scale[(1)]),
+        }
+
+    modifs = [(0, 3), (0, -1), (0, -1), (0, -1)]
+
+    for modif in modifs:
+
+        sections += [
+            ChangeDists(
+                FPS * 2,
+                [comparison],
+                foo=functools.partial(change_model, modif=modif),
+            ),
+            Still(FPS * 5),
+        ]
+
+    sections += [
+        Parallel(
+            [
+                ChangeDists(
+                    FPS * 2,
+                    [comparison],
+                    foo=functools.partial(change_model, modif=(0, 1.35)),
+                ),
+                AdjustGamma(FPS * 2, comparison, 0.6),
+            ]
+        ),
+        Still(FPS * 5),
+    ]
+
+    modifs = [(0, -2), (0, 2)]
+
+    for modif in modifs:
+
+        sections += [
+            ChangeDists(
+                FPS * 2,
+                [comparison],
+                foo=functools.partial(change_model, modif=modif),
+            ),
+            Still(FPS * 5),
+        ]
+
+    sections += [
+        AddSampleSizeLabel(comparison),
+        Still(FPS * 2),
+        AdjustSampleSize(FPS * 5, comparison, 200),
+        Still(FPS * 5),
+        FadeOut(FADE_OUT / 2),
+    ]
+
+    # sections.append(Still(FPS * 5))
+
+    # modifs = [(10, 2), (1 / 10, 1 / 2), (1 / 10, 1 / 10)]
+
+    # for modif in modifs:
+
+    #     sections.append(
+    #         ChangeDists(
+    #             FPS * 1,
+    #             [comparison, comparison],
+    #             foo=functools.partial(change_model, scale=modif),
+    #         )
+    #     )
+
+    # Add axis
+    # Add PAB
+    # Add whisker
+    # Add gamma
+    # Add red block
+    # Move PAB to show when block becomes green
+    # Show that is gamma is close to 0.5, PAB must be much higher to have positive
+    # test, otherwise we need to increase sample size to reduce the CI
 
     return Chapter("Stat test", sections, pbar_position=position)
 
 
 def build_sample_size(position=numbering()):
-    sections = [ChapterTitle(FPS * 5, position, "Sample size")]
+    def change_model(a, b, pab):
+        mean = scipy.stats.norm.isf(pab) * a.std * numpy.sqrt(2)
+        diff = mean  #  * 2
+        return {
+            "mean": (a.mean, a.mean + diff),
+            "std": (a.std, b.std),
+        }
+
+    sample_size = ComparisonMethod(
+        0, "", 0.1, width=0.3, y_margin=0.35, height=0.4, despine=False
+    )
+    comparison = ComparisonMethod(0, "", 0.45, width=0.5, y_margin=0.5, height=0.2)
+
+    # title = ChapterTitle(FPS * 5, position, "Sample size")
+    title = SlideTitle(FPS * 5, position, "Sample size")
+
+    sections = [
+        title,
+        comparison,
+        Parallel(
+            [
+                AddModel(FPS * 1, comparison, "A", mean=1, std=2, scale=0.85),
+                AddModel(FPS * 1, comparison, "B", mean=-1, std=2, scale=0.85),
+                ComputePAB(FPS * 1, comparison),
+                AddPABWhiskers(FPS * 1, comparison),
+                AddPABGamma(FPS * 1, comparison),
+            ]
+        ),
+        sample_size,
+        AddSampleSizePlot(comparison, sample_size),
+        Still(FPS * 5),
+        AdjustGamma(FPS * 5, comparison, 0.6),
+        Still(FPS * 5),
+        AdjustGamma(FPS * 5, comparison, 1 - 1e-2),
+        Still(FPS * 5),
+        FadeOut(FADE_OUT / 2),
+    ]
+
+    # Add sample size graph on left
+    # Add focus on current gamma 0.75
+    # Shrink down gamma to 0.55 (and adapt sample size accordingly)
+    # Crank up gamma to 0.95
 
     return Chapter("Sample size", sections, pbar_position=position)
 
@@ -1399,19 +1852,6 @@ def create_video(chapter, options):
 
 
 if __name__ == "__main__":
-
-    # import matplotlib.font_manager
-
-    # print(
-    #     "\n".join(
-    #         sorted(
-    #             matplotlib.font_manager.findSystemFonts(fontpaths=None, fontext="ttf")
-    #         )
-    #     )
-    # )
-    # import sys
-
-    # sys.exit(0)
 
     plt.rcParams.update({"font.size": 8})
     plt.close("all")
