@@ -80,6 +80,7 @@ from mlsys2021 import (
     ComputePAB,
     AddPABWhiskers,
     AddPABGamma,
+    Cascade,
 )
 
 
@@ -92,7 +93,14 @@ def quantile(p):
 
 class VarianceSource:
     def __init__(
-        self, text, position, total=3, x_padding=0.05, x_margin=0.2, y_margin=0.2
+        self,
+        text,
+        position,
+        total=3,
+        x_padding=0.05,
+        x_margin=0.2,
+        y_margin=0.2,
+        override_width=False,
     ):
         self.n_frames = 0
         self.text = text
@@ -103,13 +111,22 @@ class VarianceSource:
         self.y_margin = y_margin
         self.y_height = 0.5
         self.y_padding = 0.05
+        self.override_width = override_width
         self.initialized = False
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
 
-        width = (1 - 2 * self.x_margin - (self.total - 1) * self.x_padding) / self.total
+        # Override width
+        if self.override_width:
+            total = 3
+            x_padding = 0.05
+            width = (1 - 2 * self.x_margin - (total - 1) * x_padding) / total
+        else:
+            width = (
+                1 - 2 * self.x_margin - (self.total - 1) * self.x_padding
+            ) / self.total
         x = self.x_margin + (self.position - 1) * (width + self.x_padding)
         self.ax = fig.add_axes(
             [x, self.y_margin, width, self.y_height], zorder=zorder()
@@ -567,12 +584,37 @@ class SampleBlocks:
             n_frames_per_move = (n_frames_per_move, n_frames_per_move)
 
         self.n_frames = n_frames_per_sample[0] * blocks.n + n_frames_per_move[0]
+
         self.blocks = blocks
         self.row = row
         self.n_frames_per_sample = n_frames_per_sample
         self.n_frames_per_move = n_frames_per_move
         self.last_i = 0
+        self.done = False
         self.initialized = False
+
+    # @property
+    # def n_frames(self):
+    #     if hasattr(self, "points"):
+    #         n_points = len(self.points)
+    #     else:
+    #         n_points = 22
+
+    #     max_n_frames = (
+    #         self.n_frames_per_sample[0] * self.blocks.n + self.n_frames_per_move[0]
+    #     )
+    #     return max_n_frames
+    #     for i in range(max_n_frames):
+    #         n_frames_per_sample = linear(
+    #             *self.n_frames_per_sample, step=i, steps=max_n_frames
+    #         )
+
+    #         n_frames_until_last_point_moves = n_points * n_frames_per_sample
+    #         n_points = int(linear(0, n_points, i, n_frames_until_last_point_moves))
+    #         if n_points >= n_points:
+    #             break
+
+    #     return i + self.n_frames_per_move[1]
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
@@ -597,6 +639,8 @@ class SampleBlocks:
 
             count[model] += 1
 
+        assert len(self.points) == 22
+
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
@@ -609,10 +653,16 @@ class SampleBlocks:
         n_frames_until_last_point_moves = len(self.points) * n_frames_per_sample
         n_points = int(linear(0, len(self.points), i, n_frames_until_last_point_moves))
         n_steps = i - self.last_i
+        all_inert = True
         for j, model in enumerate(self.blocks.models):
             for point in self.points[:n_points]:
                 for _ in range(n_steps):
                     point.drop(n_frames_per_move)
+
+        # Stop
+        if all(point.inert() for point in self.points) and not self.done:
+            self.n_frames = i
+            self.done = True
 
         self.last_i = i
 
@@ -1265,8 +1315,8 @@ def build_intro(position=numbering()):
         comparison,
         AddModel(FPS * 1, comparison, "A", mean=1, std=2, scale=0.85, fontsize=24),
         AddModel(FPS * 1, comparison, "B", mean=-1, std=2, scale=0.85, fontsize=24),
-        Still(FPS * 20),
-        FadeOut(FADE_OUT / 2),
+        Still(FPS * 25),
+        FadeOut(FADE_OUT, zorder_pad=10),
     ]
 
     return Chapter("Intro", sections, pbar_position=position)
@@ -1314,9 +1364,13 @@ def build_intro(position=numbering()):
 def build_random(position=numbering()):
 
     v_pos = ZOrder(0)
-    init = VarianceSource("Weights init", v_pos())
-    order = VarianceSource("Data order", v_pos())
-    splits = VarianceSource("Data splits", v_pos())
+    init = VarianceSource(
+        "Weights init", v_pos(), total=2, override_width=True, x_padding=0.2
+    )
+    # order = VarianceSource("Data order", v_pos())
+    splits = VarianceSource(
+        "Data splits", v_pos(), total=2, override_width=True, x_padding=0.2
+    )
 
     weights_row = ZOrder(0)
     order_row = ZOrder(0)
@@ -1324,38 +1378,38 @@ def build_random(position=numbering()):
 
     sections = [
         # ChapterTitle(FPS * 5, position, "Randomize, randomize, randomize"),
-        SlideTitle(FPS * 5, position, "Randomize, randomize, randomize"),
+        SlideTitle(FPS * 10, position, "Randomize, randomize, randomize"),
         init,
         WriteLabel(init),
-        AddWeights(FPS * 1, init, row=weights_row()),
+        AddWeights(FPS * 2, init, row=weights_row()),
+        Still(FPS * 1),
+        AddWeights(FPS * 2, init, row=weights_row()),
         Still(FPS * 1),
         AddWeights(FPS * 1, init, row=weights_row()),
-        AddWeights(int(FPS * 0.5), init, row=weights_row()),
-        AddWeights(int(FPS * 0.25), init, row=weights_row()),
         Still(FPS * 1),
-        order,
-        WriteLabel(order),
-        AddOrderSplit(FPS * 5, order, row=order_row(), blocks=(4, 4)),
-        AddOrderSplit(FPS * 1, order, row=order_row(), blocks=(4, 4)),
-        AddOrderSplit(int(FPS * 0.5), order, row=order_row(), blocks=(4, 4)),
-        AddOrderSplit(int(FPS * 0.25), order, row=order_row(), blocks=(4, 4)),
+        AddWeights(FPS * 1, init, row=weights_row()),
         Still(FPS * 1),
+        # order,
+        # WriteLabel(order),
+        # AddOrderSplit(FPS * 5, order, row=order_row(), blocks=(4, 4)),
+        # AddOrderSplit(FPS * 1, order, row=order_row(), blocks=(4, 4)),
+        # AddOrderSplit(int(FPS * 0.5), order, row=order_row(), blocks=(4, 4)),
+        # AddOrderSplit(int(FPS * 0.25), order, row=order_row(), blocks=(4, 4)),
+        # Still(FPS * 1),
         splits,
         WriteLabel(splits),
-        AddOrderSplit(FPS * 5, splits, row=splits_row(), blocks=(3, 2, 2), new=True),
-        AddOrderSplit(FPS * 1, splits, row=splits_row(), blocks=(3, 2, 2), new=True),
-        AddOrderSplit(
-            int(FPS * 0.5), splits, row=splits_row(), blocks=(3, 2, 2), new=True
-        ),
-        AddOrderSplit(
-            int(FPS * 0.25), splits, row=splits_row(), blocks=(3, 2, 2), new=True
-        ),
+        AddOrderSplit(FPS * 2, splits, row=splits_row(), blocks=(3, 2, 2), new=True),
         Still(FPS * 1),
-        WriteOther(splits, "Data augmentation, Dropout, ...", 0.2, 0.2),
-        Still(FPS * 5),
+        AddOrderSplit(FPS * 1, splits, row=splits_row(), blocks=(3, 2, 2), new=True),
+        Still(FPS * 1),
+        AddOrderSplit(FPS * 1, splits, row=splits_row(), blocks=(3, 2, 2), new=True),
+        AddOrderSplit(FPS * 1, splits, row=splits_row(), blocks=(3, 2, 2), new=True),
+        Still(FPS * 1),
+        WriteOther(splits, "Data order, data augmentation, Dropout, ...", 0.2, 0.2),
+        Still(FPS * 7),
         WriteOther(splits, "Hyperparameter optimization", 0.2, 0.1),
-        Still(FPS * 5),
-        FadeOut(FADE_OUT / 2),
+        Still(FPS * 8),
+        FadeOut(FADE_OUT),
     ]
 
     return Chapter("Randomization", sections, pbar_position=position)
@@ -1395,7 +1449,7 @@ def build_pairing(position=numbering()):
                     label="B",
                     shuffle=False,
                 ),
-                Still(FPS * 10),
+                Still(FPS * 17),
                 RemoveOrderSplitRow(FPS * 1, splits_example, row=example_row.get()),
                 AddOrderSplit(
                     FPS * 1,
@@ -1406,67 +1460,96 @@ def build_pairing(position=numbering()):
                     choices=list("EEEEEHHH"),
                     shuffle=False,
                 ),
-                AddOrderSplit(
-                    int(FPS * 0.5),
-                    splits_example,
-                    row=example_row(),
-                    blocks=(5, 3),
-                    new=True,
-                    choices=list("EEHEHEHH"),
-                    shuffle=False,
-                    label="A",
+                Still(FPS * 8),
+                Parallel(
+                    [
+                        AddOrderSplit(
+                            FPS * 1,
+                            splits_example,
+                            row=example_row(),
+                            blocks=(5, 3),
+                            new=True,
+                            choices=list("EEHEHEHH"),
+                            shuffle=False,
+                            label="A",
+                        ),
+                        AddOrderSplit(
+                            FPS * 1,
+                            splits_example,
+                            row=example_row(),
+                            blocks=(5, 3),
+                            new=True,
+                            choices=list("EEHEHEHH"),
+                            shuffle=False,
+                            label="B",
+                        ),
+                    ]
                 ),
-                AddOrderSplit(
-                    int(FPS * 0.5),
-                    splits_example,
-                    row=example_row(),
-                    blocks=(5, 3),
-                    new=True,
-                    choices=list("EEHEHEHH"),
-                    shuffle=False,
-                    label="B",
+                Parallel(
+                    [
+                        AddOrderSplit(
+                            FPS * 1,
+                            splits_example,
+                            row=example_row(),
+                            blocks=(5, 3),
+                            new=True,
+                            choices=list("HEEEEHEH"),
+                            shuffle=False,
+                            label="A",
+                        ),
+                        AddOrderSplit(
+                            FPS * 1,
+                            splits_example,
+                            row=example_row(),
+                            blocks=(5, 3),
+                            new=True,
+                            choices=list("HEEEEHEH"),
+                            shuffle=False,
+                            label="B",
+                        ),
+                    ]
                 ),
-                Still(FPS * 5),
+                Still(FPS * 4),
                 FadeOut(FADE_OUT / 2, height=0.88),
             ]
         )
     )
 
-    order = VarianceSource("Data order", 2, total=3)
-    order_row = ZOrder(0)
+    # order = VarianceSource("Data order", 2, total=3)
+    # order_row = ZOrder(0)
 
-    sections.append(
-        Section(
-            [
-                order,
-                WriteLabel(order),
-                AddOrderSplit(
-                    FPS * 1, order, row=order_row(), blocks=(4, 4), seed=1, label="A"
-                ),
-                AddOrderSplit(
-                    FPS * 1, order, row=order_row(), blocks=(4, 4), seed=1, label="B"
-                ),
-                AddOrderSplit(
-                    int(FPS * 0.5),
-                    order,
-                    row=order_row(),
-                    blocks=(4, 4),
-                    seed=2,
-                    label="A",
-                ),
-                AddOrderSplit(
-                    int(FPS * 0.25),
-                    order,
-                    row=order_row(),
-                    blocks=(4, 4),
-                    seed=2,
-                    label="B",
-                ),
-                Still(FPS * 5),
-                FadeOut(FADE_OUT / 2, height=0.88),
-            ]
-        )
-    )
+    # sections.append(
+    #     Section(
+    #         [
+    #             order,
+    #             WriteLabel(order),
+    #             AddOrderSplit(
+    #                 FPS * 1, order, row=order_row(), blocks=(4, 4), seed=1, label="A"
+    #             ),
+    #             AddOrderSplit(
+    #                 FPS * 1, order, row=order_row(), blocks=(4, 4), seed=1, label="B"
+    #             ),
+    #             AddOrderSplit(
+    #                 int(FPS * 0.5),
+    #                 order,
+    #                 row=order_row(),
+    #                 blocks=(4, 4),
+    #                 seed=2,
+    #                 label="A",
+    #             ),
+    #             AddOrderSplit(
+    #                 int(FPS * 0.25),
+    #                 order,
+    #                 row=order_row(),
+    #                 blocks=(4, 4),
+    #                 seed=2,
+    #                 label="B",
+    #             ),
+    #             Still(FPS * 5),
+    #             FadeOut(FADE_OUT / 2, height=0.88),
+    #         ]
+    #     )
+    # )
 
     init = VarianceSource("Weights init", 2, total=3)
 
@@ -1486,15 +1569,33 @@ def build_pairing(position=numbering()):
                     seed=1,
                     label="B",
                 ),
-                Still(FPS * 5),
+                Still(int(FPS * 7.5)),
                 RemoveWeights(
                     int(FPS * 0.5), init, row=weights_row.get(), arch=(2, 3, 2)
                 ),
                 AddWeights(int(FPS * 0.5), init, row=weights_row.get(), seed=1),
-                AddWeights(int(FPS * 0.5), init, row=weights_row(), seed=2, label="A"),
-                AddWeights(int(FPS * 0.5), init, row=weights_row(), seed=2, label="B"),
-                Still(FPS * 5),
-                FadeOut(FADE_OUT / 2, height=0.88),
+                Parallel(
+                    [
+                        AddWeights(
+                            int(FPS * 0.5), init, row=weights_row(), seed=2, label="A"
+                        ),
+                        AddWeights(
+                            int(FPS * 0.5), init, row=weights_row(), seed=2, label="B"
+                        ),
+                    ]
+                ),
+                Parallel(
+                    [
+                        AddWeights(
+                            int(FPS * 0.5), init, row=weights_row(), seed=3, label="A"
+                        ),
+                        AddWeights(
+                            int(FPS * 0.5), init, row=weights_row(), seed=3, label="B"
+                        ),
+                    ]
+                ),
+                Still(int(FPS * 5)),
+                FadeOut(FADE_OUT, height=0.88),
             ]
         )
     )
@@ -1506,7 +1607,7 @@ def build_compute_pab(position=numbering()):
     comparison = ComparisonMethod(0, "", 0.25, width=0.5, y_margin=0.5, height=0.2)
     sections = [
         # ChapterTitle(FPS * 5, position, "Computation of $P(A>B)$"),
-        SlideTitle(FPS * 5, position, "Computating $P(A>B)$"),
+        SlideTitle(FPS * 3, position, "Computating $P(A>B)$"),
         comparison,
         AddModel(
             FPS * 1,
@@ -1528,14 +1629,13 @@ def build_compute_pab(position=numbering()):
             fontsize=24,
             clip_on=False,
         ),
-        Still(FPS * 5),
-        ComputePAB(FPS * 5, comparison),
-        ToyPABSimulation(comparison, end_y=-0.5),
-        Still(FPS * 5),
-        AddPABWhiskers(FPS * 5, comparison),
         Still(FPS * 2),
-        RemoveBlocks(FPS * 5, comparison),
-        FadeOut(FADE_OUT / 2),
+        ComputePAB(FPS * 1, comparison),
+        ToyPABSimulation(comparison, end_y=-0.5, custom_time=[FPS * 5]),
+        Still(int(FPS * 9.5)),
+        AddPABWhiskers(FPS * 3, comparison),
+        RemoveBlocks(FPS * 2, comparison),
+        FadeOut(FADE_OUT),
     ]
 
     return Chapter("Compute PAB", sections, pbar_position=position)
@@ -1553,8 +1653,9 @@ def build_conf_interval(position=numbering()):
 
     sections = [
         # ChapterTitle(FPS * 5, position, "Computation of the confidence interval"),
-        SlideTitle(FPS * 5, position, "Computing the confidence interval"),
+        SlideTitle(FPS * 3, position, "Computing the confidence interval"),
         blocks,
+        Still(FPS * 9),
         SampleBlocks(
             blocks,
             row=bootstrap_row(),
@@ -1563,8 +1664,9 @@ def build_conf_interval(position=numbering()):
         ),
     ]
 
+    animations = []
     for i in range(n_rows - 2):
-        sections.append(
+        animations.append(
             SampleBlocks(
                 blocks,
                 row=bootstrap_row(),
@@ -1573,21 +1675,22 @@ def build_conf_interval(position=numbering()):
             )
         )
 
+    sections.append(Cascade(FPS * 2, animations))
+
     bootstrap_row = ZOrder(0)
 
     sections += [
         ComputeBootstrapPAB(blocks),
-        Still(FPS * 5),
     ]
 
     sections += [
-        Still(FPS * 5),
+        Still(FPS * 2),
         SortBootstrapedPAB(blocks, n_frames_per_pab=15, n_frames_per_move=15),
         AddLowerBound(FPS * 1, blocks),
         AddUpperBound(FPS * 1, blocks),
         AddCI(FPS * 1, blocks),
-        Still(FPS * 5),
-        FadeOut(FADE_OUT / 2),
+        Still(FPS * 3),
+        FadeOut(FADE_OUT),
     ]
 
     return Chapter("Conf interval", sections, pbar_position=position)
@@ -1598,24 +1701,23 @@ def build_statistical_test(position=numbering()):
 
     sections = [
         # ChapterTitle(FPS * 5, position, "Statistical test with $P(A>B)$"),
-        SlideTitle(FPS * 5, position, "Statistical test with $P(A>B)$"),
+        SlideTitle(FPS * 2, position, "Statistical test with $P(A>B)$"),
         comparison,
-        AddModel(FPS * 1, comparison, "A", mean=1, std=2, scale=0.85),
-        AddModel(FPS * 1, comparison, "B", mean=-1, std=2, scale=0.85),
-        ComputePAB(FPS * 5, comparison),
-        AddPABWhiskers(FPS * 5, comparison),
+        Parallel(
+            [
+                AddModel(FPS * 1, comparison, "A", mean=1, std=2, scale=0.85),
+                AddModel(FPS * 1, comparison, "B", mean=-1, std=2, scale=0.85),
+                ComputePAB(FPS * 1, comparison),
+                AddPABWhiskers(FPS * 1, comparison),
+            ]
+        ),
         Still(FPS * 2),
-        AddPABGamma(FPS * 2, comparison),
-        Still(FPS * 5),
         AddSignificanceLabel(comparison),
+        Still(FPS * 15),
+        AddPABGamma(FPS * 1, comparison),
         AddMeaningfullLabel(comparison),
         Still(FPS * 20),
     ]
-
-    # TODO: Add stat significance and meaningfull labels and blocks
-    # TODO: on redraw, change color if blocks is should be...
-    # TODO: Adjust movements
-    # TODO: Adjust sample size
 
     def change_model(a, b, modif=(0, 0), scale=(1, 1)):
         return {
@@ -1623,7 +1725,15 @@ def build_statistical_test(position=numbering()):
             "std": (a.std * scale[0], b.std * scale[(1)]),
         }
 
-    modifs = [(0, 3), (0, -1), (0, -1), (0, -1)]
+    modifs = [
+        # Make non significant
+        (0, 3),
+        # Make non meaningful but close (still not significant)
+        (0, -1),
+        # Make significant but not meaningful
+        (0, -1),
+        # (0, -1)
+    ]
 
     for modif in modifs:
 
@@ -1633,7 +1743,7 @@ def build_statistical_test(position=numbering()):
                 [comparison],
                 foo=functools.partial(change_model, modif=modif),
             ),
-            Still(FPS * 5),
+            Still(FPS * 4),
         ]
 
     sections += [
@@ -1642,33 +1752,33 @@ def build_statistical_test(position=numbering()):
                 ChangeDists(
                     FPS * 2,
                     [comparison],
-                    foo=functools.partial(change_model, modif=(0, 1.35)),
+                    foo=functools.partial(change_model, modif=(0, 0.35)),  # 1.35
                 ),
                 AdjustGamma(FPS * 2, comparison, 0.6),
             ]
         ),
-        Still(FPS * 5),
+        Still(FPS * 4),
     ]
 
-    modifs = [(0, -2), (0, 2)]
+    # modifs = [(0, -2), (0, 2)]
 
-    for modif in modifs:
+    # for modif in modifs:
 
-        sections += [
-            ChangeDists(
-                FPS * 2,
-                [comparison],
-                foo=functools.partial(change_model, modif=modif),
-            ),
-            Still(FPS * 5),
-        ]
+    #     sections += [
+    #         ChangeDists(
+    #             FPS * 2,
+    #             [comparison],
+    #             foo=functools.partial(change_model, modif=modif),
+    #         ),
+    #         Still(FPS * 5),
+    #     ]
 
     sections += [
         AddSampleSizeLabel(comparison),
         Still(FPS * 2),
         AdjustSampleSize(FPS * 5, comparison, 200),
         Still(FPS * 5),
-        FadeOut(FADE_OUT / 2),
+        FadeOut(FADE_OUT),
     ]
 
     # sections.append(Still(FPS * 5))
@@ -1712,7 +1822,7 @@ def build_sample_size(position=numbering()):
     comparison = ComparisonMethod(0, "", 0.45, width=0.5, y_margin=0.5, height=0.2)
 
     # title = ChapterTitle(FPS * 5, position, "Sample size")
-    title = SlideTitle(FPS * 5, position, "Sample size")
+    title = SlideTitle(FPS * 3, position, "Sample size")
 
     sections = [
         title,
@@ -1729,9 +1839,9 @@ def build_sample_size(position=numbering()):
         sample_size,
         AddSampleSizePlot(comparison, sample_size),
         Still(FPS * 5),
-        AdjustGamma(FPS * 5, comparison, 0.6),
-        Still(FPS * 5),
         AdjustGamma(FPS * 5, comparison, 1 - 1e-2),
+        Still(FPS * 2),
+        AdjustGamma(FPS * 8, comparison, 0.6),
         Still(FPS * 5),
         FadeOut(FADE_OUT / 2),
     ]

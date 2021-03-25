@@ -4113,6 +4113,37 @@ def reverse(animation):
     return Reverse(animation)
 
 
+class Cascade:
+    def __init__(self, n_frames, animations):
+        self.n_frames_cascade = n_frames
+        self.animations = animations
+        self.n_frames_per_animation = int(self.n_frames_cascade / len(animations))
+        self.initialized = False
+
+    @property
+    def n_frames(self):
+        return self.n_frames_cascade + self.animations[-1].n_frames
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        for anim in self.animations:
+            anim.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        n = int(linear(0, len(self.animations), i, self.n_frames_cascade))
+        for j, anim in enumerate(self.animations[:n]):
+            assert i >= j * self.n_frames_per_animation
+            anim(i - j * self.n_frames_per_animation, fig, ax, last_animation)
+
+    def leave(self):
+        for anim in self.animations:
+            anim.leave()
+
+
 class Parallel:
     def __init__(self, animations):
         self.animations = animations
@@ -5659,9 +5690,21 @@ class Point:
         # self.y = max(self.y + y_speed, self.end_y)
         self.y = numpy.clip(self.y + y_speed, a_min=self.ylim[0], a_max=self.ylim[1])
 
+    def inert(self):
+        return self.x == self.end_x and self.y == self.end_y
+
 
 class ToyPABSimulation:
-    def __init__(self, comparison, end_y=-0.5):
+    def __init__(
+        self,
+        comparison,
+        end_y=-0.5,
+        start_time=FPS * 5 / 10,
+        n_slow=2,
+        n_speedup=10,
+        end_time=FPS * 1 / 10,
+        custom_time=None,
+    ):
         self.comparison = comparison
         self.comparison.simulation = self
         self.contest = []
@@ -5671,15 +5714,13 @@ class ToyPABSimulation:
         self.num = 22
         self.n_frames_per_move = FPS * 0.5
         self.time = numpy.zeros(self.num)
-        n_slow = 2
-        n_speedup = 10
-        start_time = FPS * 5 / 10
-        end_time = FPS * 1 / 10
         self.time[:n_slow] = start_time
         self.time[n_slow : n_slow + n_speedup] = numpy.exp(
             numpy.linspace(numpy.log(start_time), numpy.log(end_time), n_speedup)
         )
         self.time[n_slow + n_speedup :] = end_time
+        if custom_time:
+            self.time[: len(custom_time)] = custom_time
         self.time = self.time.astype(int)
         self.n_frames = sum(self.time) * 2 + int(numpy.ceil(self.n_frames_per_move))
         self.initialized = False
