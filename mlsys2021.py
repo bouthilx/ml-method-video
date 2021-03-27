@@ -322,48 +322,58 @@ class PapersWithCode:
         title_fontsize=38,
         axis_label_fontsize=32,
         axis_tick_fontsize=16,
+        marker_size=15,
         ax=None,
     ):
         self.n_frames = n_frames
         self.title_fontsize = title_fontsize
         self.axis_label_fontsize = axis_label_fontsize
         self.axis_tick_fontsize = axis_tick_fontsize
+        self.marker_size = marker_size
         self.ax = ax
         self.key = "sst2"
         self.initialized = False
 
-    def update(self, y):
-        self.y = y
-        self.scatter.set_offsets(list(zip(self.x, y)))
+    def update(self, x=None, y=None):
+        if x is not None:
+            self.x = x
+        if y is not None:
+            self.y = y
+
+        if len(self.x):
+            self.scatter.set_offsets(list(zip(self.x, self.y)))
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
 
         if self.ax is None:
-            self.ax = ax
+            # self.ax = ax
+            self.ax = fig.add_axes([0.2, 0.2, 0.6, 0.6], zorder=zorder())
 
         # ax.plot([0.6, 4], [0.1, 0.8])  #  = plt.axes(xlim=(0.5, 4.5), ylim=(0, 1))
         paperswithcode = PapersWithCodePlot()
         paperswithcode.load()
 
-        self.x = paperswithcode.data[self.key][:, 0]
-        self.y = paperswithcode.data[self.key][:, 1]
-        self.p = self.y
+        self.x = []  # paperswithcode.data[self.key][:, 0]
+        self.y = []  # paperswithcode.data[self.key][:, 1]
+        self.dates = paperswithcode.data[self.key][:, 0]
+        self.p = paperswithcode.data[self.key][:, 1]
         self.scatter = self.ax.scatter(
             self.x,
-            self.p,
-            numpy.ones(len(self.p)) * 15,
+            self.y,
+            s=self.marker_size,
             zorder=zorder(2),
             c=matplotlib.cm.get_cmap("tab10")(1),
+            clip_on=True,
         )
-        cum_x, cum_y = cum_argmax(self.x, self.p)
-        self.line = self.ax.plot(
-            cum_x,
-            cum_y,
-            color=matplotlib.cm.get_cmap("tab10")(0),
-            zorder=zorder.get() - 1,
-        )[0]
+        # cum_x, cum_y = cum_argmax(self.x, self.p)
+        # self.line = self.ax.plot(
+        #     cum_x,
+        #     cum_y,
+        #     color=matplotlib.cm.get_cmap("tab10")(0),
+        #     zorder=zorder.get() - 1,
+        # )[0]
 
         if self.ax is ax:
             self.ax.set_position([0.2, 0.2, 0.6, 0.6])
@@ -372,7 +382,7 @@ class PapersWithCode:
             self.ax.set_ylim(80, 100)
         elif self.key == "cifar10":
             self.ax.set_ylim(85, 100)
-        self.ax.set_xlim(min(self.x), max(self.x))
+        self.ax.set_xlim(min(self.dates) - 0.25, max(self.dates) + 0.25)
 
         self.ax.set_xlabel("Year", fontsize=self.axis_label_fontsize)
         self.ax.set_ylabel("Accuracy", fontsize=self.axis_label_fontsize)
@@ -394,6 +404,113 @@ class PapersWithCode:
 
     def leave(self):
         pass
+
+
+class AddPapersWithCodeData:
+    def __init__(
+        self,
+        n_frames,
+        papers_with_code,
+    ):
+        self.n_frames = n_frames
+        self.papers_with_code = papers_with_code
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        n = int(linear(0, len(self.papers_with_code.dates), i, self.n_frames))
+        self.papers_with_code.update(
+            x=self.papers_with_code.dates[:n], y=self.papers_with_code.p[:n]
+        )
+
+    def leave(self):
+        pass
+
+
+class SwipePapersWithCodeData:
+    def __init__(
+        self,
+        n_frames,
+        papers_with_code,
+        marker_focus_size=500,
+        width=0.1,
+    ):
+        self.n_frames = n_frames
+        self.papers_with_code = papers_with_code
+        self.marker_focus_size = marker_focus_size
+        self.width = width
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.lims = (min(self.papers_with_code.dates), max(self.papers_with_code.dates))
+        self.max_distance = self.width * (self.lims[1] - self.lims[0])
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        date = linear(
+            self.lims[0] - self.max_distance * 2,
+            self.lims[1] + self.max_distance * 2,
+            i,
+            self.n_frames,
+        )
+        x = self.papers_with_code.dates
+        size = linear(
+            self.marker_focus_size,
+            self.papers_with_code.marker_size,
+            (date - x) ** 2,
+            self.max_distance,
+        )
+        self.papers_with_code.scatter.set_sizes(size)
+        # self.papers_with_code.update(
+        #     x=self.papers_with_code.dates[:n], y=self.papers_with_code.p[:n]
+        # )
+
+    def leave(self):
+        pass
+
+
+class AddPapersWithCodeSOTALine:
+    def __init__(
+        self,
+        n_frames,
+        papers_with_code,
+    ):
+        self.n_frames = n_frames
+        self.papers_with_code = papers_with_code
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.cum_x, self.cum_y = cum_argmax(
+            self.papers_with_code.dates, self.papers_with_code.p
+        )
+        self.papers_with_code.line = self.papers_with_code.ax.plot(
+            [],
+            [],
+            color=matplotlib.cm.get_cmap("tab10")(0),
+            zorder=zorder.get() - 1,
+        )[0]
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        n = int(linear(0, len(self.cum_x), i, self.n_frames))
+        self.papers_with_code.line.set_xdata(self.cum_x[:n])
+        self.papers_with_code.line.set_ydata(self.cum_y[:n])
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
 
 
 class NoisyPapersWithCode:
@@ -426,8 +543,10 @@ class NoisyPapersWithCode:
             color=matplotlib.cm.get_cmap("tab10")(0),
             zorder=zorder.get() - 1,
         )[0]
-        # self.line = last_animation.line
-        # last_animation.line.set_alpha(0.2)
+        if not hasattr(last_animation, "line"):
+            self.old_line = self.paperswithcode.line
+        else:
+            self.old_line = last_animation.line
 
         self.initialized = True
 
@@ -440,7 +559,7 @@ class NoisyPapersWithCode:
         y = translate(
             self.old_y, self.new_y, i, self.n_frames * ratio, saturation=saturation
         )
-        self.paperswithcode.update(y)
+        self.paperswithcode.update(y=y)
 
         new_cum_argmax = translate(
             self.old_cum_x,
@@ -458,6 +577,10 @@ class NoisyPapersWithCode:
             saturation=saturation,
         )
         self.line.set_ydata(new_cum_argmax)
+
+        alpha = linear(1, 0.2, i, self.n_frames)
+
+        self.old_line.set_alpha(alpha)
 
     def leave(self):
         pass
@@ -862,6 +985,8 @@ def get_variance_color(label):
 class Variances:
 
     labels = {
+        "blank1": "",
+        "blank2": "",
         "empty_below_hpo": "",
         "empty_above_hpo": "",
         "bootstrapping_seed": "Data splits",
@@ -877,16 +1002,16 @@ class Variances:
     }
 
     label_order = [
-        "reference",
-        "global_seed",
+        "blank1",
+        "blank2",
         "init_seed",
         "sampler_seed",
-        "transform_seed",
+        # "transform_seed",
         "bootstrapping_seed",
         "empty_below_hpo",
         "random_search",
-        "noisy_grid_search",
-        "bayesopt",
+        # "noisy_grid_search",
+        # "bayesopt",
         "empty_above_hpo",
         "everything",
     ]
@@ -947,11 +1072,11 @@ class Variances:
         return index * self.hist_height
 
     def get_label_height(self):
-        return 1 / (len(self.labels) + 5 + 0.1)
+        return 1 / (len(self.labels) - 1.1)
 
     def get_label_y(self, label):
         i = self.label_order.index(label)
-        return (i + 2) / (len(self.labels) + 5 + 0.1) + 0.005
+        return (i + 2) / (len(self.label_order) + 3.9) - 0.03
 
     def get_bar(self, task, noise_type):
         labels = [label for label in self.label_order if label]
@@ -1005,7 +1130,7 @@ class Variances:
             )
 
             self.bar_axes[key].set_xlim((0, self._get_max_std(key) * 1.05))
-            self.bar_axes[key].set_ylim((0, 12))
+            self.bar_axes[key].set_ylim((0, len(self.label_order)))
 
             data = numpy.ones(self._get_n_points(key)) * -1000
             # self.scatters[key].set_offsets(list(zip(data, data)))
@@ -1474,7 +1599,7 @@ class VariancesHighlight:
             if label in self.noise_types:
                 continue
             self.grey_patches[label] = patches.Rectangle(
-                (0, self.get_label_y(label)),
+                (0, self.get_label_y(label) + 0.0075),
                 0,
                 self.variances.get_label_height(),
                 fill=True,
@@ -1989,14 +2114,14 @@ class SlidingAxWhiteBackground:
         self.ax = ax
         self.initialized = False
         self.ax_height = 0.55
-        self.white_box_height = 0.835
+        self.white_box_height = 0.82
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
 
         self.white_box = patches.Rectangle(
-            (0.15, 0),
+            (0, 0),
             1,
             0,
             fill=True,
@@ -2198,20 +2323,20 @@ class MoveSimpleLinearScale:
 
 
 class VarianceEquations:
-    def __init__(self):
-        self.n_frames = 0
+    def __init__(self, n_frames):
+        self.n_frames = n_frames
         self.initialized = False
 
     def initialize(self, fig, ax, last_animation):
         if self.initialized:
             return
 
-        self.ideal_ax = fig.add_axes([0.26, 0.625, 0.2, 0.1], zorder=zorder())
-        self.ideal_img = mpimg.imread("ideal_var.png")
+        self.ideal_ax = fig.add_axes([0.13, 0.58, 0.3, 0.2], zorder=zorder())
+        self.ideal_img = mpimg.imread("ideal_var_2.png")
         self.ideal_ax.imshow(self.ideal_img, cmap="gray", interpolation="none")
 
-        self.biased_ax = fig.add_axes([0.53, 0.53, 0.42, 0.3], zorder=zorder.get())
-        self.biased_img = mpimg.imread("biased_var.png")
+        self.biased_ax = fig.add_axes([0.5, 0.53, 0.42, 0.3], zorder=zorder.get())
+        self.biased_img = mpimg.imread("biased_var_2.png")
         self.biased_ax.imshow(self.biased_img, cmap="gray", interpolation="none")
 
         for axis in [self.ideal_ax, self.biased_ax]:
@@ -2220,13 +2345,37 @@ class VarianceEquations:
             axis.get_xaxis().set_visible(False)
             axis.get_yaxis().set_visible(False)
 
+        self.fade_in_ideal = reverse(
+            FadeOut(FADE_OUT, x=0, y=0, width=0.5, height=0.82, ax=self.ideal_ax)
+        )
+        self.fade_in_biased = reverse(
+            FadeOut(
+                FADE_OUT,
+                x=0.5,
+                y=0,
+                width=0.5,
+                height=0.82,
+                ax=self.biased_ax,
+            )
+        )
+        self.fade_in_ideal.initialize(fig, ax, last_animation)
+        self.fade_in_biased.initialize(fig, ax, last_animation)
+        self.fade_in_biased.animation.patch.set_alpha(1)
+
+        n_still = self.n_frames / 2 - FADE_OUT
+
+        self.sections = Section(
+            [self.fade_in_ideal, Still(n_still), self.fade_in_biased, Still(n_still)]
+        )
+        self.sections.initialize(fig, ax, last_animation)
+
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
-        pass
+        self.sections(i, fig, ax, last_animation)
 
     def leave(self):
-        pass
+        self(self.n_frames, None, None, None)
 
 
 class EstimatorSimulation:
@@ -2244,10 +2393,8 @@ class EstimatorSimulation:
             return
 
         self.axes = {}
-        self.axes["left"] = fig.add_axes([0.235, 0.025, 0.23, 0.5], zorder=zorder())
-        self.axes["right"] = fig.add_axes(
-            [0.535, 0.025, 0.23, 0.5], zorder=zorder.get()
-        )
+        self.axes["left"] = fig.add_axes([0.15, 0.025, 0.23, 0.5], zorder=zorder())
+        self.axes["right"] = fig.add_axes([0.55, 0.025, 0.23, 0.5], zorder=zorder.get())
 
         for ax in self.axes.values():
             ax.set_xlim((-5, 5))
@@ -2270,7 +2417,7 @@ class EstimatorSimulation:
             )
 
         self.k_text = self.axes["left"].text(
-            0.5,
+            0.45,
             0.25,
             self.k_text_template.format(k=self.min_k),
             transform=fig.transFigure,
@@ -2367,6 +2514,7 @@ class EstimatorTask:
         self.min_budgets = 2
         self.max_budgets = 100
         self.task = "bert-rte"
+        self.x = 0.275
         self.initialized = False
 
     def initialize(self, fig, ax, last_animation):
@@ -2375,7 +2523,7 @@ class EstimatorTask:
 
         self.estimators = EstimatorsPlot()
         self.estimators.load()
-        x = 1 if self.n_frames > 0 else 0.3
+        x = 1 if self.n_frames > 0 else self.x
         self.ax = fig.add_axes([x, 0.575, 0.4, 0.2], zorder=zorder(2))
         self.ax.set_xlim((0, self.max_budgets))
         max_y = []
@@ -2440,10 +2588,10 @@ class EstimatorTask:
     def __call__(self, i, fig, ax, last_animation):
         if self.n_frames == 0:
             return
-        x = translate(1, 0.3, i, self.n_frames / 10, saturation=10)
+        x = translate(1, self.x, i, self.n_frames / 10, saturation=10)
         bbox = self.white_patch.get_bbox()
         self.white_patch.set_xy((x * 0.95, bbox.y0))
-        x = translate(1, 0.3, i, self.n_frames / 2, saturation=10)
+        x = translate(1, self.x, i, self.n_frames / 2, saturation=10)
         bbox = self.ax.get_position()
         self.ax.set_position((x, bbox.y0, bbox.width, bbox.height))
 
@@ -2537,14 +2685,16 @@ class ComparisonMethod:
         self.ax = fig.add_axes(
             [self.x_padding, self.y_margin, self.width, self.height], zorder=zorder()
         )
-        self.ax.text(
+        text_object = self.ax.text(
             self.x_padding + self.width / 2,
             0.8,
-            self.method,
+            "",
             ha="center",
             transform=fig.transFigure,
             fontsize=32,
         )
+        self.write_title = WriteText(self.method, text_object, fill=False)
+        self.write_title.initialize(fig, ax, last_animation)
 
         if self.despine:
             despine(self.ax)
@@ -2552,10 +2702,10 @@ class ComparisonMethod:
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
-        pass
+        self.write_title(i, fig, ax, last_animation)
 
     def leave(self):
-        pass
+        self(self.n_frames, None, None, None)
 
 
 class AddModel:
@@ -2660,6 +2810,9 @@ class ComputeAverages:
             center_width=0,
         )
 
+        for model in self.comparison.models:
+            self.lines[model.name].set_xdata([model.mean, model.mean])
+
         self.delta_label.set_position((B.mean - self.delta_padding, -1))
 
     def initialize(self, fig, ax, last_animation):
@@ -2698,6 +2851,17 @@ class ComputeAverages:
             B.mean - self.delta_padding, -1, "", ha="right", va="center", fontsize=16
         )
 
+        self.lines = {}
+        for model in self.comparison.models:
+            self.lines[model.name] = self.comparison.avg_axe.plot(
+                [model.mean, model.mean],
+                [5, 5],
+                color="black",
+                alpha=0.25,
+                linestyle="--",
+                clip_on=False,
+            )[0]
+
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
@@ -2707,6 +2871,14 @@ class ComputeAverages:
         whisker_width = translate(
             self.whisker_width * 0.01,
             self.whisker_width,
+            i,
+            self.n_frames / 10,
+            saturation=5,
+        )
+
+        max_mean = translate(
+            2,
+            5,
             i,
             self.n_frames / 10,
             saturation=5,
@@ -2723,6 +2895,10 @@ class ComputeAverages:
         else:
             y = 2
 
+        for model in self.comparison.models:
+            self.lines[model.name].set_ydata([max_mean, y])
+
+        # Diff moustacho
         adjust_h_moustachos(
             self.comparison.avg_plot,
             x=B.mean + diff / 2,
@@ -2753,6 +2929,7 @@ class ComputeAverages:
             x = B.mean
             whisker_length = 1e-10
 
+        # Delta moustacho
         adjust_h_moustachos(
             self.delta_plot,
             x=x,
@@ -3611,8 +3788,8 @@ class MovePAB:
 
 
 class SetTest:
-    def __init__(self, n_frames, animation, plot, names):
-        self.n_frames = n_frames
+    def __init__(self, animation, plot, names):
+        self.n_frames = FADE_OUT
         self.animation = animation
         self.plot = plot
         self.names = names
@@ -3625,11 +3802,21 @@ class SetTest:
         self.animation.viz.set_test(self.plot.curves[self.names[-1]].comparison_method)
         # Reset indicator and comparison panel
         self.animation.set_pab(self.animation.current_pab)
+        self.fade_in = reverse(
+            FadeOut(
+                FADE_OUT,
+                x=0.225,
+                height=0.552,
+                ax=self.animation.viz.comparison.ax,
+                # color="black",
+            )
+        )
+        self.fade_in.initialize(fig, ax, last_animation)
 
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
-        pass
+        self.fade_in(i, fig, ax, last_animation)
 
     def leave(self):
         self(self.n_frames, None, None, None)
@@ -3671,8 +3858,8 @@ class ShowCurve:
 
 
 class ShowH0:
-    def __init__(self, n_frames, animation):
-        self.n_frames = n_frames
+    def __init__(self, animation):
+        self.n_frames = 0
         self.animation = animation
         self.initialized = False
 
@@ -3690,8 +3877,8 @@ class ShowH0:
 
 
 class ShowH01:
-    def __init__(self, n_frames, animation):
-        self.n_frames = n_frames
+    def __init__(self, animation):
+        self.n_frames = 0
         self.animation = animation
         self.initialized = False
 
@@ -3709,8 +3896,8 @@ class ShowH01:
 
 
 class ShowH1:
-    def __init__(self, n_frames, animation):
-        self.n_frames = n_frames
+    def __init__(self, animation):
+        self.n_frames = 0
         self.animation = animation
         self.initialized = False
 
@@ -3867,39 +4054,59 @@ def create_curve_section(
 
     # TODO: Insert MovePAB() back to 0.4 during SectionTitle, during the still.
 
+    if names == ["oracle"]:
+        checkpoints = ["pab_1"]
+        pabs = [1]
+    else:
+        checkpoints = ["pab_05", "pab_075", "pab_1"]
+        pabs = [0.5, 0.75, 1]
+
+    pabs = dict(zip(checkpoints, pabs))
+
+    test_fade_in = reverse(FadeOut(FADE_OUT, x=0.3, height=0.6))
+    plot_fade_out = FadeOut(FADE_OUT, opacity=0.95, y=0.6)
+    fade_test = Parallel([test_fade_in, plot_fade_out])
+
+    setup_test = Section(
+        [
+            MovePAB(FPS * times["move"], animation, pab=0.4),
+            Section(switch_simulation),
+            SetTest(animation, plot, names),
+            Still(FPS * times["explain"]),
+        ]
+    )
+
     section = Section(
         [
-            SectionTitle(FPS * times["title"], title, opacity=opacity, fade_ratio=0.25),
-            MovePAB(FPS * times["move"], animation, pab=0.4),
+            Parallel(
+                [
+                    SectionTitle(
+                        setup_test.n_frames,
+                        title,
+                        opacity=opacity,
+                        fade_ratio=0.25,
+                        y=0.552,
+                    ),
+                    setup_test,
+                ]
+            )
         ]
-        + switch_simulation
         + [
-            SetTest(FPS * 2, animation, plot, names),
-            Still(FPS * 2),
-            ShowCurve(
-                FPS * times["pab_05"][0],
-                animation,
-                plot,
-                names,
-                pab=0.5,
-            ),
-            Still(FPS * times["pab_05"][1]),
-            ShowCurve(
-                FPS * times["pab_075"][0],
-                animation,
-                plot,
-                names,
-                pab=PAB,
-            ),
-            Still(FPS * times["pab_075"][1]),
-            ShowCurve(
-                FPS * times["pab_1"][0],
-                animation,
-                plot,
-                names,
-                pab=1,
-            ),
-            Still(FPS * times["pab_1"][1]),
+            Section(
+                [
+                    ShowCurve(
+                        FPS * times[checkpoint][0],
+                        animation,
+                        plot,
+                        names,
+                        pab=pabs[checkpoint],
+                    ),
+                    Still(FPS * times[checkpoint][1]),
+                ]
+            )
+            for checkpoint in checkpoints
+        ]
+        + [
             DropTest(animation),
         ]
     )
@@ -4008,6 +4215,31 @@ class AdjustSampleSize:
             )
         )
         self.animation.set_sample_size(sample_size)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class AdjustComparisonGamma:
+    def __init__(self, n_frames, comparison, gamma):
+        self.n_frames = n_frames
+        self.comparison = comparison
+        self.gamma = gamma
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.old_gamma = self.comparison.method_object.gamma
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        gamma = linear(self.old_gamma, self.gamma, i, self.n_frames)
+        self.comparison.method_object.gamma = gamma
+        self.comparison.redraw()
+        # self.comparison.labels['meaningful'].redraw()
 
     def leave(self):
         self(self.n_frames, None, None, None)
@@ -4144,32 +4376,6 @@ class Cascade:
             anim.leave()
 
 
-class Parallel:
-    def __init__(self, animations):
-        self.animations = animations
-
-    @property
-    def n_frames(self):
-        return max(anim.n_frames for anim in animations)
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        for anim in self.animations:
-            anim.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        for anim in self.animations:
-            anim(i, fig, ax, last_animation)
-
-    def leave(self):
-        for anim in self.animations:
-            anim.leave()
-
-
 class Reverse:
     def __init__(self, animation):
         self.n_frames = animation.n_frames
@@ -4213,6 +4419,27 @@ class SetHBarWidth:
         self(self.n_frames, None, None, None)
 
 
+class FadeText:
+    def __init__(self, n_frames, text_object, alpha=1, **kwargs):
+        self.n_frames = n_frames
+        self.text_object = text_object
+        self.alpha = alpha
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        alpha = linear(0, self.alpha, i, self.n_frames)
+        self.text_object.set_alpha(alpha)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
 class WriteText:
     def __init__(self, text, text_object, min_i=0, fill=True):
         self.n_frames = int(FPS * len(text) / TEXT_SPEED)
@@ -4242,13 +4469,58 @@ class WriteText:
         self(self.n_frames, None, None, None)
 
 
+class WriteTextLine:
+    def __init__(self, n_frames, text, y, x_padding=0.02, fontsize=24):
+        self.n_frames = n_frames
+        self.text = text
+        self.y = y
+        self.x_padding = x_padding
+        self.fontsize = fontsize
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.ax = fig.add_axes([-1, -1, 0.1, 0.1], zorder=zorder())
+
+        self.text_object = self.ax.text(
+            self.x_padding,
+            self.y,
+            "",
+            va="top",
+            ha="left",
+            zorder=zorder(),
+            transform=fig.transFigure,
+            fontsize=self.fontsize,
+        )
+
+        self.text = WriteText(
+            self.text,
+            self.text_object,
+            fill=False,
+        )
+        self.text.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.text(i, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
 class SlideTitle:
     def __init__(
         self, n_frames, position, text, x_padding=0.02, y_padding=0.05, fontsize=34
     ):
         self.n_frames = n_frames
         self.number = position
-        self.text = f"{position}. {text}"
+        if position is not None:
+            self.text = f"{position}. {text}"
+        else:
+            self.text = text
         self.x_padding = x_padding
         self.y_padding = y_padding
         self.fontsize = fontsize
@@ -4271,10 +4543,14 @@ class SlideTitle:
             fontsize=self.fontsize,
         )
 
+        if self.number is not None:
+            min_i = int(numpy.log10(self.number)) + 1
+        else:
+            min_i = 0
         self.text = WriteText(
             self.text,
             self.text_object,
-            min_i=int(numpy.log10(self.number)) + 1,
+            min_i=min_i,
             fill=False,
         )
         self.text.initialize(fig, ax, last_animation)
@@ -4289,13 +4565,14 @@ class SlideTitle:
 
 
 class SectionTitle:
-    def __init__(self, n_frames, title, fade_ratio=0.5, opacity=0.8):
+    def __init__(self, n_frames, title, fade_ratio=0.5, opacity=0.8, **kwargs):
         self.n_frames = n_frames
         self.title = title
         self.x_padding = 0.1
         self.fontsize = 34
         self.fade_ratio = fade_ratio
         self.opacity = opacity
+        self.fade_out_kwargs = kwargs
         self.initialized = False
 
     def initialize(self, fig, ax, last_animation):
@@ -4338,13 +4615,17 @@ class SectionTitle:
             self.ax,
             opacity=self.opacity,
             pause=False,
+            **self.fade_out_kwargs,
         )
         self.fade_out.initialize(fig, ax, last_animation)
 
+        y = self.fade_out_kwargs.get("y", 0)
+        text_y = 0.6 * (1 - y) + y
+
         self.text_object = self.ax.text(
             self.x_padding,
-            0.6,
-            "",
+            text_y,
+            self.title,  # "",
             va="top",
             ha="left",
             zorder=zorder(),
@@ -4352,7 +4633,8 @@ class SectionTitle:
             fontsize=self.fontsize,
         )
 
-        self.text = WriteText(self.title, self.text_object)
+        # self.text = WriteText(self.title, self.text_object)
+        self.text = FadeText(self.fade_out.n_frames, self.text_object)
 
         fade_in = Parallel([self.fade_out, self.text])
 
@@ -4375,11 +4657,14 @@ class SectionTitle:
 
 
 class BulletPoint:
-    def __init__(self, n_frames, text, animation_builder, position, total, fontsize=24):
+    def __init__(
+        self, n_frames, text, animation_builder, position, total, y=85, fontsize=24
+    ):
         self.n_frames = n_frames
         self.text = f"{position}.\n{text}"
         self.fontsize = 32
         self.x_padding = 0.025
+        self.y = y
         self.animation_builder = animation_builder
         self.position = position
         self.total = total
@@ -4390,14 +4675,18 @@ class BulletPoint:
         if self.initialized:
             return
 
-        self.ax = fig.add_axes(
-            [(self.position - 1) * self.width, 0, self.width, 1], zorder=zorder()
-        )
-        self.animation = self.animation_builder(self.n_frames, self.ax)
-        self.animation.initialize(fig, ax, last_animation)
+        if self.animation_builder:
+            x, y = (self.position - 1) * self.width, 0
+        else:
+            x, y = -1, -1
+
+        self.ax = fig.add_axes([x, y, self.width, 1], zorder=zorder())
+        if self.animation_builder:
+            self.animation = self.animation_builder(self.n_frames, self.ax)
+            self.animation.initialize(fig, ax, last_animation)
         self.text_object = self.ax.text(
             self.x_padding + (self.position - 1) * self.width,
-            0.85,
+            self.y,
             f"{self.position}. " + self.text,
             va="top",
             ha="left",
@@ -4409,7 +4698,8 @@ class BulletPoint:
 
     def __call__(self, i, fig, ax, last_animation):
         show_text(self.text_object, self.text, i, self.n_frames / 10, min_i=3)
-        self.animation(i, fig, ax, last_animation)
+        if self.animation_builder:
+            self.animation(i, fig, ax, last_animation)
 
     def leave(self):
         self(self.n_frames, None, None, None)
@@ -5178,6 +5468,8 @@ class Parallel:
         for animation in self.animations:
             if i <= animation.n_frames:
                 animation(i, fig, ax, last_animation)
+            else:
+                animation.leave()
 
     def leave(self):
         for animation in self.animations:
@@ -5193,6 +5485,7 @@ class FadeOut:
         pause=True,
         zorder_pad=0,
         transform=None,
+        color="white",
         x=0,
         y=0,
         width=1,
@@ -5204,6 +5497,7 @@ class FadeOut:
         self.pause = 2 if pause else 1
         self.zorder_pad = zorder_pad
         self.transform = transform
+        self.color = color
         self.x = x
         self.y = y
         self.width = width
@@ -5225,7 +5519,7 @@ class FadeOut:
             self.width,
             self.height,
             fill=True,
-            color="white",
+            color=self.color,
             zorder=zorder() + self.zorder_pad,
             transform=fig.transFigure if self.transform is None else self.transform,
             clip_on=False,
@@ -5451,7 +5745,10 @@ class DropAxis:
     def leave(self):
         self(self.n_frames, None, None, None)
         for ax in self.axes:
-            ax.draw_axis.ax.remove()
+            try:
+                ax.draw_axis.ax.remove()
+            except:
+                pass
 
 
 class DrawAxis:
@@ -5973,6 +6270,260 @@ class SetEstimatorRho:
         self(self.n_frames, None, None, None)
 
 
+class CodeTitle:
+    def __init__(self, n_frames, title, code_block, x, y, fontsize=28):
+        self.n_frames = n_frames
+        self.title = title
+        self.code_block = code_block
+        self.x = x
+        self.y = y
+        self.fontsize = fontsize
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        text_object = self.code_block.ax.text(
+            self.x, self.y - 0.25, "", va="bottom", ha="left", fontsize=self.fontsize
+        )
+
+        self.code_block.ax.axhline(0, color="black")
+
+        self.write_text = WriteText(self.title, text_object, fill=False)
+
+        # TODO: Maybe add a line
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.write_text(i, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class CodeLine:
+    def __init__(self, n_frames, line, comment, comment_side="left", fontsize=20):
+        self.n_frames = n_frames
+        self.line = line
+        self.comment = comment
+        self.fontsize = fontsize
+        self.index = 0
+        self.comment_side = comment_side
+        self.x_padding = 0.05
+        if comment_side == "left":
+            self.comment_x = 1
+        else:
+            self.comment_x = 0
+            self.x_padding *= -1
+        self.code_block = None
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        text_object = self.code_block.ax.text(
+            0, self.index, "", va="bottom", ha="left", fontsize=self.fontsize
+        )
+
+        self.write_text = WriteText(self.line, text_object, fill=False)
+
+        if self.comment:
+            text_object = self.code_block.ax.text(
+                self.comment_x + self.x_padding,
+                self.index,
+                "",
+                va="bottom",
+                ha=self.comment_side,
+                fontsize=self.fontsize,
+            )
+
+            self.write_comment = WriteText(self.comment, text_object, fill=False)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.write_text(i, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class ShowComment:
+    def __init__(self, n_frames, line):
+        self.n_frames = n_frames
+        self.line = line
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.line.write_comment(i, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class CodeBlock:
+    def __init__(self, title, lines, x=0, y=0, width=1, height=None, line_height=0.1):
+        self.lines = lines
+        self.n_frames = 0
+        self.title = title
+        self.x = x
+        self.y = y
+        self.width = width
+        if height is None:
+            height = line_height * (len(lines) + title.count("\n") + 2)
+        self.height = height
+        self.line_height = line_height
+        self.initialized = False
+
+    def show_title(self, n_frames):
+        # TODO: Create the text object
+        return CodeTitle(n_frames, self.title, self, x=0, y=0)
+
+    def show_comment(self, n_frames, i):
+        commented_lines = [line for line in self.lines if line.comment is not None]
+        return ShowComment(n_frames, commented_lines[i])
+
+    def show_lines(self):
+        return Section(self.lines)
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.ax = fig.add_axes(
+            [self.x, 1 - self.y - self.height, self.width, self.height], zorder=zorder()
+        )
+        self.ax.set_ylim((len(self.lines), -(self.title.count("\n") + 1)))
+        despine(self.ax)
+
+        for i, line in enumerate(self.lines):
+            line.index = i + 1
+            line.code_block = self
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class AddStatLabel:
+    def __init__(self, comparison, key, label, x, y, y_offset=0):
+        self.n_frames = WriteText(label, None).n_frames
+        self.comparison = comparison
+        self.key = key
+        self.label = label
+        self.x = x
+        self.y = y
+        self.x_padding = 0.05
+        self.block_padding = 0.1
+        self.y_offset = y_offset
+        self.initialized = False
+
+    def redraw(self):
+        # get CI
+        pass
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        if not hasattr(self.comparison, "labels"):
+            self.comparison.labels = {}
+
+        self.comparison.labels[self.key] = self
+        ax_width = self.comparison.method_object.ax_width
+
+        center = self.comparison.x_padding + self.comparison.width / 2
+        x = center - ax_width / 2
+        x -= self.x_padding
+
+        y = (
+            self.comparison.y_margin
+            - self.comparison.method_object.y_offset
+            + self.y_offset
+        )
+
+        self.text_object = self.comparison.pab_axe.text(
+            self.x - self.block_padding,
+            self.y,
+            "",
+            ha="right",
+            va="center",
+            clip_on=False,
+            fontsize=18,
+            # transform=fig.transFigure,
+            zorder=zorder(),
+        )
+
+        self.scatter = self.comparison.pab_axe.scatter(
+            [self.x], [self.y], marker="s", s=100, color="red", clip_on=False
+        )
+
+        self.write_text = WriteText(self.label, self.text_object, fill=False)
+        self.write_text.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.write_text(i, fig, ax, last_animation)
+        self.redraw()
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class AddSignificanceLabel(AddStatLabel):
+    def __init__(self, comparison):
+        super(AddSignificanceLabel, self).__init__(
+            comparison, "significance", "Statistically Significant", x=0.5, y=-2.5
+        )
+
+    def redraw(self):
+        lower, pab, upper = self.comparison.method_object.pab
+
+        if 0.5 < lower:
+            self.scatter.set_color(variances_colors(2))  # green
+        else:
+            self.scatter.set_color(variances_colors(3))  # red
+
+
+class AddMeaningfullLabel(AddStatLabel):
+    def __init__(self, comparison):
+        super(AddMeaningfullLabel, self).__init__(
+            comparison, "meaningful", "Statistically Meaningful", x=0.75, y=-3.5
+        )
+
+    def redraw(self):
+        # TODO: Adjust self.x based on current PAB of gamma
+        gamma = self.comparison.method_object.gamma
+
+        self.text_object.set_position((gamma - self.block_padding, self.y))
+
+        offsets = self.scatter.get_offsets()
+
+        self.scatter.set_offsets([(gamma, offsets[0][1])])
+
+        lower, pab, upper = self.comparison.method_object.pab
+        print(upper, gamma)
+
+        if gamma <= upper:
+            self.scatter.set_color(variances_colors(2))  # green
+        else:
+            self.scatter.set_color(variances_colors(3))  # red
+
+
 class Template:
     def __init__(self, n_frames):
         self.n_frames = n_frames
@@ -6045,17 +6596,40 @@ class Cover:
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
-        if not self.initialized:
-            self.initialize(ax)
+        pass
 
     def leave(self):
-        self.title.set_position((-1, -1))
-        self.authors_text.set_position((-1, -1))
-        self.affiliations_text.set_position((-1, -1))
+        pass
+        # self.title.set_position((-1, -1))
+        # self.authors_text.set_position((-1, -1))
+        # self.affiliations_text.set_position((-1, -1))
+
+
+class RemoveCover:
+    def __init__(self, cover):
+        self.n_frames = 0
+        self.cover = cover
+        self.initialized = True
+
+    def initialize(self, fig, ax, last_animation):
+        pass
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        self.cover.title.remove()
+        self.cover.authors_text.remove()
+        self.cover.affiliations_text.remove()
 
 
 def build_papers_with_code(
-    n_frames, title_fontsize=38, axis_label_fontsize=32, axis_tick_fontsize=16, ax=None
+    n_frames,
+    title_fontsize=38,
+    axis_label_fontsize=32,
+    axis_tick_fontsize=16,
+    ax=None,
+    papers_with_code=None,
 ):
     # sections = [PapersWithCode(FPS * 5)]
     # for i in range(1, 76):
@@ -6065,18 +6639,24 @@ def build_papers_with_code(
     #     sections.append(NoisyPapersWithCode(max(int(FPS * (2 / i)), 1)))
 
     total = 1414
-    n_intro_frames = int(n_frames * FPS * 5 / total)
-    n_moving_frames = int((n_frames - n_intro_frames) / 2)
+    n_intro_frames = FPS * 2  #  int(n_frames * FPS * 5 / total)
+    n_moving_frames = n_frames - n_intro_frames  # int((n_frames - n_intro_frames) / 2)
 
-    papers_with_code = PapersWithCode(
-        n_intro_frames,
-        title_fontsize=title_fontsize,
-        axis_label_fontsize=axis_label_fontsize,
-        axis_tick_fontsize=axis_tick_fontsize,
-        ax=ax,
-    )
+    sections = []
 
-    sections = [papers_with_code]
+    if papers_with_code is None:
+        papers_with_code = PapersWithCode(
+            0,
+            title_fontsize=title_fontsize,
+            axis_label_fontsize=axis_label_fontsize,
+            axis_tick_fontsize=axis_tick_fontsize,
+            ax=ax,
+        )
+
+        sections.append(papers_with_code)
+        sections.append(AddPapersWithCodeData(n_intro_frames / 2, papers_with_code))
+        sections.append(AddPapersWithCodeSOTALine(n_intro_frames / 2, papers_with_code))
+
     noisy_frames_counter = 0
     n_noisy_frames_sequence = []
     i = 1
@@ -6096,15 +6676,30 @@ def build_papers_with_code(
 
 
 def build_intro(data_folder):
+    cover = Cover(FPS * 4)
+    fade_out = FadeOut(FADE_OUT / 2)
+
+    papers_with_code = PapersWithCode(0, marker_size=30)
+
     sections = [
-        Cover(FPS * 30),
-        Black(FPS * 1),
+        cover,
+        fade_out,
+        RemoveCover(cover),
         # Intro
-        build_papers_with_code(FPS * 24),
-        Still(FPS * 2),
-        VarianceLabel(FPS * 10),
-        EstimatorLabel(FPS * 10),
-        ComparisonLabel(FPS * 20),
+        papers_with_code,
+        reverse(fade_out),
+        AddPapersWithCodeData(int(FPS / 2), papers_with_code),
+        Still(int(FPS * 7)),
+        SwipePapersWithCodeData(FPS * 2, papers_with_code),
+        Still(int(FPS * 3.5)),
+        AddPapersWithCodeSOTALine(FPS * 2, papers_with_code),
+        Still(int(FPS * 5.5)),
+        build_papers_with_code(int(FPS * 25.5), papers_with_code=papers_with_code),
+        # Still(int(FPS * 4.5)),
+        VarianceLabel(FPS * 6),
+        EstimatorLabel(int(FPS * 4.5)),
+        ComparisonLabel(FPS * 8),
+        # FadeOut(FADE_OUT / 2),
         # Zoom(FPS * 2),
         # Still(FPS * 5),
     ]
@@ -6124,8 +6719,8 @@ def build_variances(data_folder):
 
     variances = Variances(data_folder)
 
-    draw_hist_axis = DrawHistAxis(FPS * 5, variances, "vgg", "init_seed")
-    draw_bar_axis = DrawBarAxis(FPS * 5, variances, "vgg", "init_seed")
+    draw_hist_axis = DrawHistAxis(int(FPS * 0.5), variances, "vgg", "init_seed")
+    draw_bar_axis = DrawBarAxis(int(FPS * 0.5), variances, "vgg", "init_seed")
 
     sections = [
         build_variances_chapter_title(),
@@ -6133,10 +6728,14 @@ def build_variances(data_folder):
         # TODO: Make label appear 1 or 2 seconds before it starts raining.
         #       Especially for the first one, weight inits.
         # TODO: Add STD and Performances labels at the bottom.
-        VarianceSourceLabel(FPS * 5, variances, "init_seed"),
+        VarianceSourceLabel(FPS * 8, variances, "init_seed"),
         AddTaskTitle(FPS * 5, variances, "vgg"),
-        draw_hist_axis,
-        draw_bar_axis,
+        Parallel(
+            [
+                draw_hist_axis,
+                draw_bar_axis,
+            ]
+        ),
         SpeedUpVarianceSource(
             FPS * 20,
             FPS * 5,
@@ -6160,7 +6759,8 @@ def build_variances(data_folder):
         #     delta=20,
         # ),
         # TODO: Maybe highlight median seed that is fixed for other noise types
-        VarianceSourceLabel(FPS * 5, variances, "sampler_seed"),
+        Still(FPS * 2),
+        VarianceSourceLabel(FPS * 1, variances, "sampler_seed"),
         # VarianceSource(FPS * 5, variances, "vgg", "sampler_seed", with_label=False),
         SpeedUpVarianceSource(
             FPS * 10,
@@ -6177,52 +6777,84 @@ def build_variances(data_folder):
             n_slow=3,
             n_speedup=20,
         ),
-        VarianceSourceLabel(FPS * 5, variances, "transform_seed"),
-        VarianceSource(FPS * 5, variances, "vgg", "transform_seed", with_label=False),
-        VarianceSourceLabel(FPS * 10, variances, "bootstrapping_seed"),
+        # VarianceSourceLabel(FPS * 5, variances, "transform_seed"),
+        # VarianceSource(FPS * 5, variances, "vgg", "transform_seed", with_label=False),
+        VarianceSourceLabel(FPS * 6, variances, "bootstrapping_seed"),
         VarianceSource(
             FPS * 10, variances, "vgg", "bootstrapping_seed", with_label=False
         ),
         # VarianceSource(FPS * 10, variances, "vgg", "bootstrapping_seed"),
         # VarianceSource(FPS * 2, variances, "vgg", "global_seed"),
-        VarianceSourceLabel(FPS * 2, variances, "global_seed"),
-        VarianceSourceLabel(FPS * 2, variances, "reference"),
-        VarianceSourceLabel(FPS * 5, variances, "random_search"),
-        VarianceSource(
-            FPS * 10, variances, "vgg", "random_search", spacing=20, delta=20
-        ),
-        VarianceSourceLabel(FPS * 5, variances, "noisy_grid_search"),
-        VarianceSource(
-            FPS * 20, variances, "vgg", "noisy_grid_search", spacing=50, delta=20
-        ),
-        VarianceSourceLabel(FPS * 5, variances, "bayesopt"),
-        VarianceSource(FPS * 20, variances, "vgg", "bayesopt", spacing=20, delta=50),
-        VarianceSourceLabel(FPS * 10, variances, "everything"),
-        VarianceSource(FPS * 20, variances, "vgg", "everything"),
-        # TODO:
-        VarianceSum(FPS * 15, variances),
-        VariancesHighlight(FPS * 10, variances, ["init_seed"], vbars=[]),
-        VariancesHighlight(FPS * 10, variances, ["bootstrapping_seed"], vbars=[]),
-        VariancesHighlight(
-            FPS * 10, variances, ["init_seed", "random_search"], vbars=[]
-        ),
+        # VarianceSourceLabel(FPS * 2, variances, "global_seed"),
+        # VarianceSourceLabel(FPS * 2, variances, "reference"),
         Still(FPS * 5),
+        VarianceSourceLabel(FPS * 5, variances, "random_search"),
+        Still(FPS * 5),
+        # VarianceSource(
+        #     FPS * 10, variances, "vgg", "random_search", spacing=20, delta=20
+        # ),
+        SpeedUpVarianceSource(
+            FPS * 10,
+            FPS * 3,
+            FPS * 5,
+            variances,
+            "vgg",
+            "random_search",
+            with_label=False,
+            start_spacing=500,
+            end_spacing=20,
+            start_delta=10,
+            end_delta=20,
+            n_slow=5,
+            n_speedup=5,
+        ),
+        # VarianceSourceLabel(FPS * 5, variances, "noisy_grid_search"),
+        # VarianceSource(
+        #     FPS * 20, variances, "vgg", "noisy_grid_search", spacing=50, delta=20
+        # ),
+        # VarianceSourceLabel(FPS * 5, variances, "bayesopt"),
+        # VarianceSource(FPS * 20, variances, "vgg", "bayesopt", spacing=20, delta=50),
+        Still(FPS * 15),
+        VarianceSourceLabel(int(FPS * 5.5), variances, "everything"),
+        # VarianceSource(FPS * 20, variances, "vgg", "everything"),
+        SpeedUpVarianceSource(
+            FPS * 10,
+            FPS * 3,
+            FPS * 5,
+            variances,
+            "vgg",
+            "everything",
+            with_label=False,
+            start_spacing=500,
+            end_spacing=20,
+            start_delta=10,
+            end_delta=20,
+            n_slow=5,
+            n_speedup=5,
+        ),
+        # VarianceSum(FPS * 15, variances),
+        # VariancesHighlight(FPS * 10, variances, ["init_seed"], vbars=[]),
+        # VariancesHighlight(FPS * 10, variances, ["bootstrapping_seed"], vbars=[]),
+        # VariancesHighlight(
+        #     FPS * 10, variances, ["init_seed", "random_search"], vbars=[]
+        # ),
+        Still(FPS * 10),
         Parallel(
             [
                 DropAxis([draw_hist_axis, draw_bar_axis]),
-                VarianceTask(FPS * 5, variances, "segmentation"),
+                VarianceTask(int(FPS * 3.5), variances, "segmentation"),
             ]
         ),
-        VarianceTask(FPS * 5, variances, "bio-task2"),
-        VarianceTask(FPS * 5, variances, "bert-sst2"),
-        VarianceTask(FPS * 5, variances, "bert-rte"),
+        VarianceTask(int(FPS * 3.5), variances, "bio-task2"),
+        VarianceTask(int(FPS * 3), variances, "bert-sst2"),
+        VarianceTask(FPS * 4, variances, "bert-rte"),
         # NormalHighlight(FPS * 5, variances),
         # ClipOn(variances),
         Still(FPS * 1),
         VariancesFlushHist(FPS * 1, variances),
         Still(FPS * 5),
-        VariancesHighlight(FPS * 10, variances, ["init_seed"], vbars=[]),
-        VariancesHighlight(FPS * 10, variances, ["bootstrapping_seed"], vbars=[]),
+        VariancesHighlight(int(FPS * 13.5), variances, ["init_seed"], vbars=[]),
+        VariancesHighlight(FPS * 23, variances, ["bootstrapping_seed"], vbars=[]),
         VariancesHighlight(
             FPS * 10,
             variances,
@@ -6230,8 +6862,9 @@ def build_variances(data_folder):
             vbars=[],
             ratio_out=2,  # Don't remove highligth, just fade out.
         ),
+        Still(FPS * 12),
         FadeOut(FADE_OUT / 2),
-        build_variance_recap(data_folder),
+        build_papers_with_code(int(FPS * 25)),
         FadeOut(FADE_OUT / 2),
     ]
 
@@ -6242,15 +6875,83 @@ def build_estimators_chapter_title():
     return ChapterTitle(FPS * 5, 2, "Estimating\nMean Performance", MiniEstimator)
 
 
+# CodeBlock
+# ShowLine
+# ShowComment
+
+
+def build_algorithms(title, lines, comment_side="left", **kwargs):
+    section = []
+    for line in lines:
+        if len(line) == 2:
+            time, code = line
+            comment = None
+        else:
+            time, code, comment = line
+        section.append(
+            CodeLine(int(FPS * time), code, comment, comment_side=comment_side)
+        )
+
+    return CodeBlock(title=title, lines=section, **kwargs)
+
+
+def build_ideal_algorithm():
+
+    lines = (
+        (5, "for i in {1, ..., $k$}"),
+        (5, "    seed everything"),
+        (5, "    execute HOpt", "O(T)"),
+        (5, "    train and test with best HP", "O(1)"),
+        (5, "compute average performance"),
+        (0, "", "$O(k * T)$"),
+    )
+
+    return build_algorithms(
+        title="Ideal\nEstimator",
+        lines=lines,
+        x=0.125,
+        y=0,
+        width=0.3,
+        line_height=0.075,
+        comment_side="right",
+    )
+
+
+def build_fixedhopt_algorithm():
+
+    lines = (
+        (5, "seed everything"),
+        (5, "execute HOpt", "$O(T)$"),
+        (5, "for i in {1, ..., $k$}"),
+        (5, "    seed everything except HOpt"),
+        (5, "    train and test with best HP", "$O(1)$"),
+        (5, "compute average performance"),
+        (0, "", "$O(k + T)$"),
+    )
+
+    return build_algorithms(
+        title="FixedHOpt\nEstimator",
+        lines=lines,
+        x=0.525,
+        y=0,
+        width=0.3,
+        line_height=0.075,
+        comment_side="left",
+    )
+
+
 def build_estimators(data_folder):
 
     OPACITY = 0.95
 
-    algorithms = Algorithms(FPS * 10)
+    # algorithms = Algorithms(FPS * 1)
 
     estimators = EstimatorSimulation()
 
     estimator_task = EstimatorTask(0)
+
+    ideal_estimator_code = build_ideal_algorithm()
+    fixedhopt_estimator_code = build_fixedhopt_algorithm()
 
     # TODO: Add paperswithcode transition, showing comparison moustachos
     # 3. Comparison section
@@ -6260,39 +6961,51 @@ def build_estimators(data_folder):
         # TODO: Add paperswithcode transition, showing estimation moustacho
         # 2. Estimator section
         # TODO: Come back to average estimator (average estimator and comparison)
-        algorithms,
+        # algorithms,
+        # BringInBiasedEstimator(0, algorithms),
         # Move estimator to the left
         # Add Ideal Algo1 (sweep highligh line above each line, and add O(T) on left
         # when at it)
-        CodeHighlight(FPS * 5, lines=[1, 3]),
-        CodeHighlight(FPS * 2, lines=[5, 5]),
-        CodeHighlight(FPS * 2, lines=[6, 7]),
-        CodeHighlight(FPS * 2, lines=[8, 8]),
-        CodeHighlight(FPS * 2, lines=[10, 10], comment="O(T)", comment_side="left"),
-        CodeHighlight(FPS * 2, lines=[11, 11], comment="O(1)", comment_side="left"),
-        CodeHighlight(FPS * 2, lines=[12, 12]),
-        CodeHighlight(FPS * 2, lines=[14, 15], comment="O(k*T)", comment_side="left"),
-        CodeHighlight(FPS * 2, lines=[1, 20]),
-        BringInBiasedEstimator(FPS * 5, algorithms),
-        CodeHighlight(FPS * 2, lines=[1, 3]),
-        CodeHighlight(FPS * 2, lines=[5, 7]),
-        CodeHighlight(FPS * 3, lines=[8, 8], comment="O(T)", comment_side="right"),
-        CodeHighlight(FPS * 2, lines=[9, 9]),
-        CodeHighlight(FPS * 2, lines=[10, 11]),
-        CodeHighlight(FPS * 2, lines=[12, 12], comment="O(1)", comment_side="right"),
-        CodeHighlight(FPS * 2, lines=[13, 13]),
-        CodeHighlight(FPS * 2, lines=[15, 16], comment="O(k+T)", comment_side="right"),
-        CodeHighlight(FPS * 2, lines=[1, 20]),
+        ideal_estimator_code,
+        ideal_estimator_code.show_title(FPS * 5),
+        ideal_estimator_code.show_lines(),
+        ideal_estimator_code.show_comment(FPS, 0),
+        ideal_estimator_code.show_comment(FPS, 1),
+        ideal_estimator_code.show_comment(FPS, 2),
+        fixedhopt_estimator_code,
+        fixedhopt_estimator_code.show_title(FPS * 5),
+        fixedhopt_estimator_code.show_lines(),
+        fixedhopt_estimator_code.show_comment(FPS, 0),
+        fixedhopt_estimator_code.show_comment(FPS, 1),
+        fixedhopt_estimator_code.show_comment(FPS, 2),
+        # CodeHighlight(FPS * 5, lines=[1, 3]),
+        # CodeHighlight(FPS * 2, lines=[5, 5]),
+        # CodeHighlight(FPS * 2, lines=[6, 7]),
+        # CodeHighlight(FPS * 2, lines=[8, 8]),
+        # CodeHighlight(FPS * 2, lines=[10, 10], comment="O(T)", comment_side="left"),
+        # CodeHighlight(FPS * 2, lines=[11, 11], comment="O(1)", comment_side="left"),
+        # CodeHighlight(FPS * 2, lines=[12, 12]),
+        # CodeHighlight(FPS * 2, lines=[14, 15], comment="O(k*T)", comment_side="left"),
+        # CodeHighlight(FPS * 2, lines=[1, 20]),
+        # BringInBiasedEstimator(FPS * 5, algorithms),
+        # CodeHighlight(FPS * 2, lines=[1, 3]),
+        # CodeHighlight(FPS * 2, lines=[5, 7]),
+        # CodeHighlight(FPS * 3, lines=[8, 8], comment="O(T)", comment_side="right"),
+        # CodeHighlight(FPS * 2, lines=[9, 9]),
+        # CodeHighlight(FPS * 2, lines=[10, 11]),
+        # CodeHighlight(FPS * 2, lines=[12, 12], comment="O(1)", comment_side="right"),
+        # CodeHighlight(FPS * 2, lines=[13, 13]),
+        # CodeHighlight(FPS * 2, lines=[15, 16], comment="O(k+T)", comment_side="right"),
+        # CodeHighlight(FPS * 2, lines=[1, 20]),
         # Add basic linear plot k* 100 vs k + 100
         # Flush algos
         # SimpleLinearScale(FPS * 5),
+        Still(FPS * 5),
         SlidingSimpleLinearScale(FPS * 5),
         # TODO: Remove plot instead of moving on left
-        FadeOut(FPS * 2, x=0, y=0, width=1, height=0.83),
+        FadeOut(FPS * 2, x=0, y=0, width=1, height=0.82),
         # MoveSimpleLinearScale(FPS * 2),
-        VarianceEquations(),
-        reverse(FadeOut(FPS * 2, x=0, y=0, width=1, height=0.83)),
-        Still(FPS * 10),
+        VarianceEquations(FPS * 30),
         estimators,
         reverse(FadeOut(FPS * 2, x=0, y=0, width=1, height=0.6)),
         Still(FPS * 10),
@@ -6300,7 +7013,7 @@ def build_estimators(data_folder):
         Still(FPS * 5),
         EstimatorAdjustRho(FPS * 10, estimators, new_rho=2),
         Still(FPS * 5),
-        FadeOut(FPS * 1, x=0, y=0.6, width=1, height=0.23),
+        FadeOut(FPS * 1, x=0, y=0.6, width=1, height=0.22),
         estimator_task,
         reverse(
             Parallel(
@@ -6341,8 +7054,8 @@ def build_estimators(data_folder):
         EstimatorShow(FPS * 1, estimators, estimator_task, "FixHOptEst($k$, All)"),
         Still(FPS * 10),
         FadeOut(FADE_OUT / 2),
-        build_estimators_recap(data_folder),
-        FadeOut(FADE_OUT / 2),
+        # build_estimators_recap(data_folder),
+        # FadeOut(FADE_OUT / 2),
     ]
 
     return Chapter("Estimators", sections, pbar_position=2)
@@ -6354,29 +7067,96 @@ def build_comparison_chapter_title():
 
 def build_comparisons(data_folder):
 
-    average_comparison = ComparisonMethod(FPS * 1, "Average", 0.1)
-    pab_comparison = ComparisonMethod(FPS * 1, "Probability of outperforming", 0.5)
+    average_comparison = ComparisonMethod(FPS * 4, "Average", 0.1)
+    pab_comparison = ComparisonMethod(FPS * 5, "Probability of outperforming", 0.5)
 
     sections = [
         build_comparison_chapter_title(),
         average_comparison,
         AddModel(FPS * 1, average_comparison, "A", mean=1, std=2, scale=0.85),
+        Still(int(FPS * 0.5)),
         AddModel(FPS * 1, average_comparison, "B", mean=-1, std=2, scale=0.85),
+        Still(int(FPS * 0.5)),
         ComputeAverages(FPS * 5, average_comparison),
+        Still(FPS * 7),
         pab_comparison,
-        AddModel(FPS * 1, pab_comparison, "A", mean=1, std=2, scale=0.85),
-        AddModel(FPS * 1, pab_comparison, "B", mean=-1, std=2, scale=0.85),
-        Still(FPS * 5),
-        ComputePAB(FPS * 5, pab_comparison),
-        ToyPABSimulation(pab_comparison),
-        Still(FPS * 5),
+        Parallel(
+            [
+                AddModel(FPS * 1, pab_comparison, "A", mean=1, std=2, scale=0.85),
+                AddModel(FPS * 1, pab_comparison, "B", mean=-1, std=2, scale=0.85),
+            ]
+        ),
+        Still(int(FPS * 0.5)),
+        ComputePAB(FPS * 1, pab_comparison),
+        Still(int(FPS * 6)),
+        ToyPABSimulation(pab_comparison, custom_time=[FPS * 6]),
+        Still(FPS * 6),
         AddPABWhiskers(FPS * 5, pab_comparison),
         Still(FPS * 2),
         RemoveBlocks(FPS * 5, pab_comparison),
         Still(FPS * 1),
-        AddPABGamma(FPS * 2, pab_comparison),
+        AddSignificanceLabel(pab_comparison),
         Still(FPS * 5),
     ]
+
+    def change_model(a, b, modif=(0, 0), scale=(1, 1)):
+        return {
+            "mean": (a.mean + modif[0], b.mean + modif[1]),
+            "std": (a.std * scale[0], b.std * scale[(1)]),
+        }
+
+    modifs = [
+        # Make non significant
+        (0, 3),
+        # Make significant again
+        (0, -3),
+    ]
+
+    for modif in modifs:
+
+        sections += [
+            ChangeDists(
+                FPS * 2,
+                [average_comparison, pab_comparison],
+                foo=functools.partial(change_model, modif=modif),
+            ),
+            Still(FPS * 4),
+        ]
+
+    sections += [
+        AddPABGamma(FPS * 2, pab_comparison),
+        AddMeaningfullLabel(pab_comparison),
+        Still(FPS * 19),
+    ]
+
+    modifs = [
+        # Make non meaningful but close (still not significant)
+        (0, 2),
+        # Make meaningful again
+        (0, -2),
+        # Make significant but not meaningful
+        (0, 1),
+    ]
+
+    for modif in modifs:
+
+        sections += [
+            ChangeDists(
+                FPS * 2,
+                [average_comparison, pab_comparison],
+                foo=functools.partial(change_model, modif=modif),
+            ),
+            Still(FPS * 4),
+        ]
+
+    sections += [
+        Still(FPS * 1),
+        FadeOut(FADE_OUT),
+        SectionTitle(FPS * 25, "Simulations", opacity=1, fade_ratio=0.5),
+        FadeOut(FADE_OUT),
+    ]
+
+    return Chapter("Test methods", sections, pbar_position=3)
 
     def change_model(a, b, modif=(0, 0), scale=(1, 1)):
         return {
@@ -6434,7 +7214,7 @@ def build_simulation_plot():
         sample_size=MAX_SAMPLE_SIZE,
         n_points=N_POINTS,
         simuls=SIMULS,
-        pab_kwargs={"ci_type": "normal"},
+        # pab_kwargs={"ci_type": "bootstrap"},
     )
     simulation_plot.build_simulations()
     simulation_plot.set_sample_size(SAMPLE_SIZE)
@@ -6454,14 +7234,14 @@ def build_simulations(data_folder):
         # FadeOut(0),
         simulation_animation,
         reverse(FadeOut(FADE_OUT)),
-        Still(FPS * 5),
+        Still(FPS * 10),
         OpenPAB(FPS * 2, simulation_animation),
         Still(FPS * 1),
         OpenScatter(FPS * 0.5, simulation_animation),
         Simulate(FPS * 2, simulation_animation, models=["B"], rows=[0]),
         Still(FPS * 1),
         Simulate(FPS * 1, simulation_animation, models=["A"], rows=[0]),
-        Still(FPS * 1),
+        Still(FPS * 5),
         Simulate(FPS * 1, simulation_animation, models=["B", "A"], rows=[1]),
     ]
 
@@ -6484,17 +7264,20 @@ def build_simulations(data_folder):
         )
 
     sections += [
+        # TODO: Adjust to FixedHOpt with a rho label, than revert.
+        Still(FPS * 10),
+        MovePAB(FPS * 7, simulation_animation, pab=0.4),
+        MovePAB(FPS * 4, simulation_animation, pab=1),
+        MovePAB(int(FPS * 0.5), simulation_animation, pab=0.4),
+        ShowH0(simulation_animation),
+        MovePAB(FPS * 4, simulation_animation, pab=0.5),
         Still(FPS * 5),
-        MovePAB(FPS * 2, simulation_animation, pab=0.4),
-        MovePAB(FPS * 2, simulation_animation, pab=1),
-        MovePAB(FPS * 2, simulation_animation, pab=0.4),
-        ShowH0(FPS * 5, simulation_animation),
-        MovePAB(FPS * 2, simulation_animation, pab=0.5),
-        ShowH01(FPS * 5, simulation_animation),
-        MovePAB(FPS * 2, simulation_animation, pab=PAB),
-        ShowH1(FPS * 5, simulation_animation),
-        MovePAB(FPS * 2, simulation_animation, pab=1),
-        Still(FPS * 2),
+        ShowH01(simulation_animation),
+        MovePAB(FPS * 4, simulation_animation, pab=PAB),
+        Still(FPS * 5),
+        ShowH1(simulation_animation),
+        MovePAB(FPS * 4, simulation_animation, pab=1),
+        Still(FPS * 5),
         create_curve_section(
             "The cheapest optimal",
             ["oracle"],
@@ -6502,10 +7285,9 @@ def build_simulations(data_folder):
             simulation_plot,
             times={
                 "title": 5,
-                "move": 0,
-                "pab_05": (1, 5),
-                "pab_075": (1, 5),
-                "pab_1": (1, 5),
+                "move": 1,
+                "explain": 0,
+                "pab_1": (3, 18),
             },
             opacity=OPACITY,
         ),
@@ -6516,10 +7298,11 @@ def build_simulations(data_folder):
             simulation_plot,
             times={
                 "title": 5,
-                "move": 0,
-                "pab_05": (1, 5),
-                "pab_075": (1, 5),
+                "move": 1,
+                "pab_05": (1, 10),
+                "pab_075": (1, 10),
                 "pab_1": (1, 5),
+                "explain": 20,
             },
             switch_simulation=[
                 Still(FPS * 2),
@@ -6541,10 +7324,11 @@ def build_simulations(data_folder):
             simulation_plot,
             times={
                 "title": 5,
-                "move": 0,
-                "pab_05": (1, 5),
-                "pab_075": (1, 5),
-                "pab_1": (1, 5),
+                "move": 1,
+                "pab_05": (1, 10),
+                "pab_075": (1, 40),
+                "pab_1": (1, 10),
+                "explain": 20,
             },
             switch_simulation=[
                 Still(FPS * 2),
@@ -6566,34 +7350,36 @@ def build_simulations(data_folder):
             simulation_plot,
             times={
                 "title": 5,
-                "move": 0,
-                "pab_05": (1, 5),
-                "pab_075": (1, 5),
+                "move": 1,
+                "pab_05": (1, 10),
+                "pab_075": (1, 20),
                 "pab_1": (1, 5),
+                "explain": 20,
             },
             opacity=OPACITY,
         ),
-        MovePAB(FPS * 1, simulation_animation, pab=0.75),
-        Still(FPS * 5),
-        SectionTitle(
-            FPS * 5, "Adjusting $H_1$ (with $\gamma$)", opacity=OPACITY, fade_ratio=0.25
-        ),
-        AdjustGamma(FPS * 5, simulation_animation, gamma=0.9),
-        Still(FPS * 5),
-        AdjustGamma(FPS * 1, simulation_animation, gamma=0.75),
-        SectionTitle(
-            FPS * 5, "Adjusting sample size", opacity=OPACITY, fade_ratio=0.25
-        ),
-        Still(FPS * 5),
-        AdjustSampleSize(FPS * 5, simulation_animation, sample_size=1000),
-        Still(FPS * 5),
-        # SectionTitle(FPS * 5, "Adjusting both", opacity=OPACITY, fade_ratio=0.25),
-        # AdjustGamma(FPS * 5, simulation_animation, gamma=0.9),
-        # AdjustAverage(FPS * 5, simulation_animation),
+        Still(FPS * 10),
+        # MovePAB(FPS * 1, simulation_animation, pab=0.75),
         # Still(FPS * 5),
-        FadeOut(FADE_OUT / 2),
-        build_comparisons_recap(data_folder),
-        FadeOut(FADE_OUT / 2),
+        # SectionTitle(
+        #     FPS * 5, "Adjusting $H_1$ (with $\gamma$)", opacity=OPACITY, fade_ratio=0.25
+        # ),
+        # AdjustGamma(FPS * 5, simulation_animation, gamma=0.9),
+        # Still(FPS * 5),
+        # AdjustGamma(FPS * 1, simulation_animation, gamma=0.75),
+        # SectionTitle(
+        #     FPS * 5, "Adjusting sample size", opacity=OPACITY, fade_ratio=0.25
+        # ),
+        # Still(FPS * 5),
+        # AdjustSampleSize(FPS * 5, simulation_animation, sample_size=1000),
+        # Still(FPS * 5),
+        # # SectionTitle(FPS * 5, "Adjusting both", opacity=OPACITY, fade_ratio=0.25),
+        # # AdjustGamma(FPS * 5, simulation_animation, gamma=0.9),
+        # # AdjustAverage(FPS * 5, simulation_animation),
+        # # Still(FPS * 5),
+        # FadeOut(FADE_OUT / 2),
+        # build_comparisons_recap(data_folder),
+        FadeOut(FADE_OUT),
     ]
 
     return Chapter("Simulations", sections, pbar_position=4)
@@ -6757,6 +7543,56 @@ def build_recap(data_folder):
     return Chapter("Recap", sections, pbar_position=5)
 
 
+def build_recommendations(data_folder):
+    sections = [
+        SlideTitle(FPS * 3, None, "Our recommendations"),
+        BulletPoint(
+            FPS * 10,
+            text="Use random data\nsplits whenever\npossible",
+            animation_builder=None,
+            y=0.7,
+            position=1,
+            total=3,
+        ),
+        BulletPoint(
+            FPS * 10,
+            text="Randomize as\nmany sources of\nvariation as\npossible",
+            animation_builder=None,
+            y=0.7,
+            position=2,
+            total=3,
+        ),
+        BulletPoint(
+            FPS * 10,
+            text="Use a statistical\ntest such as\n$P(A>B)$",
+            animation_builder=None,
+            y=0.7,
+            position=3,
+            total=3,
+        ),
+        WriteTextLine(
+            FPS * 3,
+            (
+                "Watch our 5 mins video at MLSys2021 for more details\n"
+                "on our recommendations."
+            ),
+            y=0.25,
+        ),
+        WriteTextLine(
+            FPS * 3,
+            (
+                "Code to generate this video with matplotlib is available at\n"
+                "github.com/bouthilx/ml-method-video"
+            ),
+            y=0.10,
+            fontsize=18,
+        ),
+        Still(FPS * 10),
+    ]
+
+    return Chapter("Recommendations", sections)
+
+
 chapters = dict(
     intro=build_intro,
     variances=build_variances,
@@ -6764,6 +7600,7 @@ chapters = dict(
     comparisons=build_comparisons,
     simulations=build_simulations,
     recap=build_recap,
+    recommendations=build_recommendations,
 )
 
 
@@ -6773,6 +7610,7 @@ def main(argv=None):
     parser.add_argument("--end", default=-1, type=int)
     parser.add_argument("--fps", default=60, choices=[2, 5, 10, 30, 60], type=int)
     parser.add_argument("--chapters", nargs="*", choices=chapters.keys(), type=str)
+    parser.add_argument("--suffix", default="", type=str)
     # parser.add_argument("--output", default="mlsys2021.mp4", type=str)
     parser.add_argument("--dpi", default=300, type=int)
     parser.add_argument("--data-folder", default="~/Dropbox/Olympus-Data", type=str)
@@ -6830,7 +7668,7 @@ def create_video(chapter, options):
     )
 
     animate.fig.set_size_inches(width, height, True)
-    anim.save(f"{chapter}.mp4", writer=writer, dpi=options.dpi)
+    anim.save(f"{chapter}{options.suffix}.mp4", writer=writer, dpi=options.dpi)
 
 
 if __name__ == "__main__":

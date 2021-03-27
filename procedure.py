@@ -81,6 +81,9 @@ from mlsys2021 import (
     AddPABWhiskers,
     AddPABGamma,
     Cascade,
+    AddSignificanceLabel,
+    AddMeaningfullLabel,
+    AdjustComparisonGamma
 )
 
 
@@ -1016,136 +1019,6 @@ class AddCI:
         self(self.n_frames, None, None, None)
 
 
-class AddStatLabel:
-    def __init__(self, comparison, key, label, x, y, y_offset=0):
-        self.n_frames = WriteText(label, None).n_frames
-        self.comparison = comparison
-        self.key = key
-        self.label = label
-        self.x = x
-        self.y = y
-        self.x_padding = 0.05
-        self.block_padding = 0.1
-        self.y_offset = y_offset
-        self.initialized = False
-
-    def redraw(self):
-        # get CI
-        pass
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        if not hasattr(self.comparison, "labels"):
-            self.comparison.labels = {}
-
-        self.comparison.labels[self.key] = self
-        ax_width = self.comparison.method_object.ax_width
-
-        center = self.comparison.x_padding + self.comparison.width / 2
-        x = center - ax_width / 2
-        x -= self.x_padding
-
-        y = (
-            self.comparison.y_margin
-            - self.comparison.method_object.y_offset
-            + self.y_offset
-        )
-
-        self.text_object = self.comparison.pab_axe.text(
-            self.x - self.block_padding,
-            self.y,
-            "",
-            ha="right",
-            va="center",
-            clip_on=False,
-            fontsize=18,
-            # transform=fig.transFigure,
-            zorder=zorder(),
-        )
-
-        self.scatter = self.comparison.pab_axe.scatter(
-            [self.x], [self.y], marker="s", s=100, color="red", clip_on=False
-        )
-
-        self.write_text = WriteText(self.label, self.text_object, fill=False)
-        self.write_text.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.write_text(i, fig, ax, last_animation)
-        self.redraw()
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class AddSignificanceLabel(AddStatLabel):
-    def __init__(self, comparison):
-        super(AddSignificanceLabel, self).__init__(
-            comparison, "significance", "Statistically Significant", x=0.5, y=-2.5
-        )
-
-    def redraw(self):
-        lower, pab, upper = self.comparison.method_object.pab
-
-        if 0.5 < lower:
-            self.scatter.set_color(variances_colors(2))  # green
-        else:
-            self.scatter.set_color(variances_colors(3))  # red
-
-
-class AddMeaningfullLabel(AddStatLabel):
-    def __init__(self, comparison):
-        super(AddMeaningfullLabel, self).__init__(
-            comparison, "meaningful", "Statistically Meaningful", x=0.75, y=-3.5
-        )
-
-    def redraw(self):
-        # TODO: Adjust self.x based on current PAB of gamma
-        gamma = self.comparison.method_object.gamma
-
-        self.text_object.set_position((gamma - self.block_padding, self.y))
-
-        offsets = self.scatter.get_offsets()
-
-        self.scatter.set_offsets([(gamma, offsets[0][1])])
-
-        lower, pab, upper = self.comparison.method_object.pab
-
-        if gamma <= upper:
-            self.scatter.set_color(variances_colors(2))  # green
-        else:
-            self.scatter.set_color(variances_colors(3))  # red
-
-
-class AdjustGamma:
-    def __init__(self, n_frames, comparison, gamma):
-        self.n_frames = n_frames
-        self.comparison = comparison
-        self.gamma = gamma
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.old_gamma = self.comparison.method_object.gamma
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        gamma = linear(self.old_gamma, self.gamma, i, self.n_frames)
-        self.comparison.method_object.gamma = gamma
-        self.comparison.redraw()
-        # self.comparison.labels['meaningful'].redraw()
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
 class AddSampleSizeLabel:
     def __init__(self, comparison):
         self.comparison = comparison
@@ -1754,7 +1627,7 @@ def build_statistical_test(position=numbering()):
                     [comparison],
                     foo=functools.partial(change_model, modif=(0, 0.35)),  # 1.35
                 ),
-                AdjustGamma(FPS * 2, comparison, 0.6),
+                AdjustComparisonGamma(FPS * 2, comparison, 0.6),
             ]
         ),
         Still(FPS * 4),
@@ -1839,9 +1712,9 @@ def build_sample_size(position=numbering()):
         sample_size,
         AddSampleSizePlot(comparison, sample_size),
         Still(FPS * 5),
-        AdjustGamma(FPS * 5, comparison, 1 - 1e-2),
+        AdjustComparisonGamma(FPS * 5, comparison, 1 - 1e-2),
         Still(FPS * 2),
-        AdjustGamma(FPS * 8, comparison, 0.6),
+        AdjustComparisonGamma(FPS * 8, comparison, 0.6),
         Still(FPS * 5),
         FadeOut(FADE_OUT / 2),
     ]

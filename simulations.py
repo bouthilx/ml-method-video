@@ -692,7 +692,8 @@ def simulate_pab(pab, simulations, comparison_method, tasks=None):
     detection_rates = numpy.zeros(len(tasks))
     for i, task in enumerate(tasks):
         simulation = simulations.get_task(task)
-        detection_rates[i] = cache.compute(simulation, comparison_method)
+        # detection_rates[i] = cache.compute(simulation, comparison_method)
+        detection_rates[i] = comparison_method(simulation)
 
     detection_rates *= 100
 

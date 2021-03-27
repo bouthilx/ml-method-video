@@ -558,6 +558,9 @@ class VariancesPlot:
     def load(self):
         self.data = load_data(self.root)
         self.variances = load_variances(self.data)
+        for task, task_data in self.variances.items():
+            for key, data in task_data.items():
+                numpy.random.shuffle(data)
 
     def plot(self, ax):
         pass
