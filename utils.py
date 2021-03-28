@@ -288,3 +288,21 @@ class Cache:
 
 def precision(number, decimals=3):
     return float(numpy.format_float_scientific(number, precision=decimals - 1))
+
+
+class Template:
+    def __init__(self, n_frames):
+        self.n_frames = n_frames
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        pass
+
+    def leave(self):
+        self(self.n_frames, None, None, None)

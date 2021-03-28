@@ -315,6 +315,7 @@ class SimulationScatter:
     def __init__(self, ax, simulation, n_rows, colors=None):
         self.simulation = simulation
         self.sample_size = simulation.sample_size
+        self.current_sample_size = simulation.sample_size
         self.ys = dict()
         for key in "AB":
             self.ys[key] = numpy.ones(simulation.mu_a.shape) * -100
@@ -335,6 +336,7 @@ class SimulationScatter:
 
     def simulate(self, i, n_frames, key, lines):
         idx = int(numpy.round(linear(0, self.simulation.sample_size, i, n_frames)))
+        self.current_sample_size = idx
         if lines[-1] == -1:
             lines.pop(-1)
             assert lines[0] < self.n_rows
@@ -357,6 +359,7 @@ class SimulationScatter:
                 linear(self.simulation.sample_size, new_sample_size, i, n_frames)
             )
         )
+        self.current_sample_size = idx
         if lines[-1] == -1:
             lines.pop(-1)
             assert lines[0] < self.n_rows

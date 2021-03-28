@@ -15,7 +15,6 @@ from matplotlib import patches
 from matplotlib import pyplot as plt
 import matplotlib.cm
 from matplotlib.animation import FuncAnimation
-from tqdm import tqdm
 import scipy.optimize
 
 
@@ -24,9 +23,34 @@ from rained_histogram import rained_histogram, rain_std, RainedHistogram
 from utils import translate, linear, ZOrder, despine, show_text, ornstein_uhlenbeck_step
 from paperswithcode import PapersWithCodePlot, cum_argmax
 from variances import VariancesPlot
-from estimator_bubbles import EstimatorBubbles
+from estimator_bubbles import (
+    EstimatorBubbles,
+    FadeInWhiskers,
+    FadeInTopWhisker,
+    AlignWhiskerPositions,
+    ResetWhiskerPositions,
+)
 from estimators import EstimatorsPlot, LABELS
 from estimators import COLORS as EST_COLORS
+from transitions import FadeOut, FADE_OUT, Still
+from compositions import Parallel, reverse, Reverse, Cascade, Section, Chapter
+from text import (
+    FadeText,
+    WriteText,
+    WriteTextLine,
+    SlideTitle,
+    BulletPoint,
+    TextBox,
+    MovingTextBox,
+    CodeTitle,
+    CodeLine,
+    ShowComment,
+    CodeBlock,
+    ChapterTitle,
+    SectionTitle,
+)
+
+from base import zorder, FPS, Animation, Cover, RemoveCover
 from simulations import (
     pab,
     percentile_bootstrap,
@@ -48,13 +72,6 @@ warnings.filterwarnings("ignore")
 #     )
 
 END = 10
-FPS = 60
-
-FADE_OUT = FPS * 2
-TEXT_SPEED = 35  # Characters per second
-
-
-zorder = ZOrder()
 
 
 N_INTRO = 25
@@ -96,225 +113,6 @@ def cum_argmax(x, y):
     return numpy.array(xs), numpy.array(ys)
 
 
-class Section:
-    def __init__(self, plots):
-        self.plots = plots
-        self.j = 0
-        self.last_i = 0
-        self.counter = 0
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.fig = fig
-        self.initialized = True
-
-    @property
-    def n_frames(self):
-        return sum([plot.n_frames for plot in self.plots])
-
-    def __call__(self, i, fig, ax, last_animation):
-        if not self.initialized:
-            self.initialize(fig, ax, last_animation)
-
-        step = i - self.last_i
-        self.counter += step
-        self.last_i = i
-
-        if self.j >= len(self.plots):
-            return
-
-        plot = self.plots[self.j]
-        if plot.n_frames <= self.counter and self.j + 1 >= len(self.plots):
-            plot.leave()
-            return 0
-
-        elif plot.n_frames <= self.counter:
-            # self.j += 1
-            # self.counter -= plot.n_frames
-            plot = self.plots[self.j]
-            plot.initialize(fig, ax, self.plots[self.j - 1] if self.j > 0 else None)
-            while plot.n_frames <= self.counter:
-                plot(
-                    plot.n_frames,
-                    fig,
-                    ax,
-                    self.plots[self.j - 1] if self.j > 0 else None,
-                )
-                plot.leave()
-                self.j += 1
-                if self.j >= len(self.plots):
-                    return 0
-                self.counter -= plot.n_frames
-                plot = self.plots[self.j]
-                plot.initialize(fig, ax, self.plots[self.j - 1] if self.j > 0 else None)
-
-            self.counter = max(self.counter, 0)
-        plot.initialize(fig, ax, self.plots[self.j - 1] if self.j > 0 else None)
-        plot(
-            self.counter,
-            fig,
-            ax,
-            self.plots[self.j - 1] if self.j > 0 else None,
-        )
-        return step
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class Chapter(Section):
-    def __init__(self, name, plots, pbar_position=None):
-        super(Chapter, self).__init__(plots)
-        self.name = name
-        self.pbar_position = pbar_position
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        if self.name:
-            self.pbar = tqdm(
-                total=self.n_frames,
-                leave=True,
-                desc=self.name,
-                position=self.pbar_position,
-            )
-        super(Chapter, self).initialize(fig, ax, last_animation)
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        step = i - self.last_i
-        super(Chapter, self).__call__(i, fig, ax, last_animation)
-        if self.name:
-            self.pbar.update(step)
-
-    def leave(self):
-        self.fig.clear()
-        if self.name:
-            self.pbar.close()
-
-
-class Animation:
-    def __init__(self, plots, width, height, start=0, end=-1, fps=FPS):
-        self.plots = plots
-        self.start = start
-        self._end = end
-        self.fps = fps
-        self.j = 0
-        self.counter = 0
-
-        self.fig = plt.figure(figsize=(width, height))
-        self.fig.tight_layout()
-        self.ax = plt.axes(xlim=(0.5, 4.5), ylim=(0, 1), label="main")
-        # self.ax.plot([0.6, 4], [0.1, 0.8])
-        plt.gca().set_position([0, 0, 1, 1])
-        self.scatter = self.ax.scatter([], [], alpha=1, zorder=zorder())
-        self.initialized = False
-
-    def initialize(self):
-        # self.pbar = tqdm(total=self.n_frames, desc="Full video")
-        self.initialized = True
-        total = 0
-        for j, plot in enumerate(self.plots):
-            if total + plot.n_frames > self.start:
-                self.counter = int(self.start - total)
-                self.j = j
-                break
-            else:
-                plot.initialize(self.fig, self.ax, self.plots[j - 1] if j > 0 else None)
-                plot.leave()
-            total += plot.n_frames
-
-    @property
-    def n_frames(self):
-        return self.end - self.start
-
-    @property
-    def end(self):
-        if self._end < 0:
-            return sum(plot.n_frames for plot in self.plots)
-        return self._end
-
-    @end.setter
-    def end(self, value):
-        self._end = value
-
-    @property
-    def step(self):
-        return int(FPS / self.fps)
-
-    def __call__(self, i):
-        if not self.initialized:
-            self.initialize()
-            return (self.scatter,)
-
-        i *= self.step
-        i += self.start
-        i = int(i)
-        plot = self.plots[self.j]
-        if plot.n_frames <= self.counter and self.j + 1 >= len(self.plots):
-            plot.leave()
-            return (self.scatter,)
-        elif plot.n_frames <= self.counter:
-            plot.leave()
-
-            # self.j += 1
-            # self.counter -= plot.n_frames
-            plot = self.plots[self.j]
-            plot.initialize(
-                self.fig, self.ax, self.plots[self.j - 1] if self.j > 0 else None
-            )
-            while plot.n_frames <= self.counter:
-                plot.leave()
-                self.j += 1
-                self.counter -= plot.n_frames
-                plot = self.plots[self.j]
-                plot.initialize(
-                    self.fig, self.ax, self.plots[self.j - 1] if self.j > 0 else None
-                )
-
-            self.counter = max(self.counter, 0)
-        plot.initialize(
-            self.fig, self.ax, self.plots[self.j - 1] if self.j > 0 else None
-        )
-        plot(
-            self.counter,
-            self.fig,
-            self.ax,
-            self.plots[self.j - 1] if self.j > 0 else None,
-        )
-        self.counter = int(self.counter + self.step)
-        # self.pbar.update(self.step)
-        return (self.scatter,)
-
-
-class Black:
-    def __init__(self, n_frames):
-        self.n_frames = n_frames
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.black_patch = patches.Rectangle((0, 0), 0, 0, fill=True, color="black")
-        ax.add_patch(self.black_patch)
-        self.black_patch.set_width(5)
-        self.black_patch.set_height(5)
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        if not self.initialized:
-            self.initialize(ax)
-
-    def leave(self):
-        self.black_patch.set_width(0)
-        self.black_patch.set_height(0)
-
-
 class PapersWithCode:
     def __init__(
         self,
@@ -324,6 +122,7 @@ class PapersWithCode:
         axis_tick_fontsize=16,
         marker_size=15,
         ax=None,
+        with_ref=False,
     ):
         self.n_frames = n_frames
         self.title_fontsize = title_fontsize
@@ -332,6 +131,7 @@ class PapersWithCode:
         self.marker_size = marker_size
         self.ax = ax
         self.key = "sst2"
+        self.with_ref = with_ref
         self.initialized = False
 
     def update(self, x=None, y=None):
@@ -383,6 +183,17 @@ class PapersWithCode:
         elif self.key == "cifar10":
             self.ax.set_ylim(85, 100)
         self.ax.set_xlim(min(self.dates) - 0.25, max(self.dates) + 0.25)
+
+        if self.with_ref:
+            self.ax.text(
+                0.975,
+                0.025,
+                "from paperswithcode.com",
+                transform=fig.transFigure,
+                ha="right",
+                va="bottom",
+                fontsize=14,
+            )
 
         self.ax.set_xlabel("Year", fontsize=self.axis_label_fontsize)
         self.ax.set_ylabel("Accuracy", fontsize=self.axis_label_fontsize)
@@ -586,25 +397,13 @@ class NoisyPapersWithCode:
         pass
 
 
-class Still:
-    def __init__(self, n_frames):
-        self.n_frames = n_frames
-
-    def initialize(self, fig, ax, last_animation):
-        pass
-
-    def __call__(self, i, fig, ax, last_animation):
-        pass
-
-    def leave(self):
-        pass
-
-
 class VarianceLabel:
-    def __init__(self, n_frames):
+    def __init__(self, n_frames, paperswithcode):
         self.n_frames = n_frames
         self.text = "1. Different sources\n    of varations"
         self.initialized = False
+
+        self.paperswithcode = paperswithcode
 
         self.moustacho_x = 2016.9
         self.moustacho_y = 90.5
@@ -617,11 +416,18 @@ class VarianceLabel:
         if self.initialized:
             return
 
-        self.label = ax.text(
-            2019, 99, "", va="top", ha="left", fontsize=28, zorder=zorder(2)
+        self.label = self.paperswithcode.ax.text(
+            2019,
+            99,
+            "",
+            va="top",
+            ha="left",
+            fontsize=28,
+            zorder=zorder(2),
+            clip_on=False,
         )
 
-        self.annotation = ax.annotate(
+        self.annotation = self.paperswithcode.ax.annotate(
             "",
             xy=(
                 self.moustacho_x,
@@ -645,13 +451,14 @@ class VarianceLabel:
         )
 
         self.moustacho = moustachos(
-            ax,
+            self.paperswithcode.ax,
             x=self.moustacho_x,
             y=self.moustacho_y,
             whisker_width=self.moustacho_whisker_width * 0.01,
             whisker_length=self.moustacho_whisker_length * 0.01,
             center_width=self.moustacho_center_width * 0.01,
             zorder=zorder.get() - 1,
+            clip_on=False,
         )
 
         self.white_patch = patches.Rectangle(
@@ -663,7 +470,7 @@ class VarianceLabel:
             zorder=zorder.get() - 1,
             alpha=0.75,
         )
-        ax.add_patch(self.white_patch)
+        self.paperswithcode.ax.add_patch(self.white_patch)
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
@@ -703,10 +510,11 @@ class VarianceLabel:
 
 
 class EstimatorLabel:
-    def __init__(self, n_frames):
+    def __init__(self, n_frames, paperswithcode):
         self.n_frames = n_frames
         self.text = "2. Estimating the\n    average performance"
         self.initialized = False
+        self.paperswithcode = paperswithcode
 
         self.moustacho_x = 2016.9
         self.moustacho_y = 90.5
@@ -721,7 +529,7 @@ class EstimatorLabel:
         if self.initialized:
             return
 
-        self.label = ax.text(
+        self.label = self.paperswithcode.ax.text(
             2019, 92, "", va="top", ha="left", fontsize=28, zorder=zorder.get()
         )
 
@@ -736,7 +544,7 @@ class EstimatorLabel:
         d_v_middle = d_v_center - d_v_width * 2
         d_h_width = 0.2
 
-        self.annotation = ax.annotate(
+        self.annotation = self.paperswithcode.ax.annotate(
             "",
             xy=(
                 self.moustacho_x + self.moustacho_center_width * 1.25,
@@ -780,7 +588,7 @@ class EstimatorLabel:
         #     color="black",
         # )
 
-        ax.add_patch(self.white_patch)
+        self.paperswithcode.ax.add_patch(self.white_patch)
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
@@ -814,10 +622,12 @@ class EstimatorLabel:
 
 
 class ComparisonLabel:
-    def __init__(self, n_frames):
+    def __init__(self, n_frames, paperswithcode):
         self.n_frames = n_frames
         self.text = "3. How to compare and\n    account for variance"
         self.initialized = False
+
+        self.papers_with_code = paperswithcode
 
         self.moustacho_x = 2016.54
         self.moustacho_y = 90
@@ -831,7 +641,7 @@ class ComparisonLabel:
         if self.initialized:
             return
 
-        self.label = ax.text(
+        self.label = self.papers_with_code.ax.text(
             2019, 84.5, "", va="top", ha="left", fontsize=28, zorder=zorder(2)
         )
 
@@ -846,7 +656,7 @@ class ComparisonLabel:
         d_v_center = 90
         d_h_width = 0.2
 
-        self.annotation = ax.annotate(
+        self.annotation = self.papers_with_code.ax.annotate(
             "",
             xy=(d_h_middle, d_v_middle),
             xycoords="data",
@@ -867,7 +677,7 @@ class ComparisonLabel:
         )
 
         self.moustacho = moustachos(
-            ax,
+            self.papers_with_code.ax,
             x=self.moustacho_x,
             y=self.moustacho_y,
             whisker_width=self.moustacho_whisker_width * 0.01,
@@ -885,7 +695,7 @@ class ComparisonLabel:
             zorder=zorder.get() - 1,
             alpha=0.75,
         )
-        ax.add_patch(self.white_patch)
+        self.papers_with_code.ax.add_patch(self.white_patch)
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
@@ -945,27 +755,6 @@ class ComparisonLabel:
                 whisker_length=whisker_length,
                 center_width=center_width,
             )
-
-    def leave(self):
-        pass
-
-
-class Zoom:
-    def __init__(self, n_frames):
-        self.n_frames = n_frames
-
-    def initialize(self, fig, ax, last_animation):
-        pass
-
-    def __call__(self, i, fig, ax, last_animation):
-        old_x = 0.2
-        new_x = -2
-        old_y = 0.6
-        new_y = 5
-        saturation = 3
-        tmp_x = translate(old_x, new_x, i, self.n_frames, saturation=saturation)
-        tmp_y = translate(old_y, new_y, i, self.n_frames, saturation=saturation)
-        ax.set_position([tmp_x, tmp_x, tmp_y, tmp_y])
 
     def leave(self):
         pass
@@ -1052,6 +841,15 @@ class Variances:
 
     def get_data(self, task):
         return self.variances_plot.variances[task]
+
+    def get_max_std(self, task):
+        stds = []
+        data = self.get_data(task)
+        for noise_type in self.label_order:
+            if noise_type in data:
+                stds.append(data[noise_type].std())
+
+        return max(stds)
 
     def get_slice(self, task, noise_type):
         i = 0
@@ -1417,6 +1215,12 @@ class VarianceSource:
             self.initialized = True
             return
 
+        std = self.variances.get_data(self.task)[self.noise_type].std()
+        # ref_std = self.variances.get_data(self.task)["everything"].std()
+        print(self.task, self.noise_type)
+        scale = std / self.variances.get_max_std(self.task)
+        # scale = 1
+
         self.rained_histogram = RainedHistogram(
             self.variances.scatters[self.task],
             self.variances.get_data(self.task)[self.noise_type],
@@ -1432,6 +1236,9 @@ class VarianceSource:
             n_columns=self.variances.n_columns,
             marker_size=50,
             y_padding=0.15,
+            scale=scale
+            # min_data=self.variances.get_min(self.task)
+            # max_data=self.variances.get_min(self.task)
         )
 
         self.initialized = True
@@ -2393,8 +2200,8 @@ class EstimatorSimulation:
             return
 
         self.axes = {}
-        self.axes["left"] = fig.add_axes([0.15, 0.025, 0.23, 0.5], zorder=zorder())
-        self.axes["right"] = fig.add_axes([0.55, 0.025, 0.23, 0.5], zorder=zorder.get())
+        self.axes["left"] = fig.add_axes([0.15, 0.00, 0.23, 0.5], zorder=zorder())
+        self.axes["right"] = fig.add_axes([0.55, 0.00, 0.23, 0.5], zorder=zorder.get())
 
         for ax in self.axes.values():
             ax.set_xlim((-5, 5))
@@ -3362,11 +3169,70 @@ class PABDists:
             model.redraw()
 
 
+class BackAndForthTransitSimulation:
+    def __init__(self, n_frames, animation, simulation_names):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.simulation_names = simulation_names
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        transit = TransitSimulations(
+            int(self.n_frames / 2),
+            self.animation,
+            [
+                copy.deepcopy(getattr(self.animation, name))
+                for name in self.simulation_names
+            ],
+        )
+
+        self.sections = Section([transit, reverse(transit)])
+
+        self.sections.initialize(fig, ax, last_animation)
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.sections(i, fig, ax, last_animation)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class TransitSimulations:
+    def __init__(self, n_frames, animation, simulations):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.simulations = simulations
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        for model in ["mu_a", "mu_b"]:
+            old = getattr(self.simulations[0], model)
+            new = getattr(self.simulations[1], model)
+            numpy.sort(old)
+            numpy.sort(new)
+            data = linear(old, new, i, self.n_frames)
+            setattr(self.animation.viz.scatter.simulation, model, data)
+        self.animation.viz.scatter.redraw()
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
 class PABScatter:
     def __init__(self, ax, simulation, n_rows):
         self.ax = ax
         self.n_rows = n_rows
-        self.simulation = simulation
 
         ax.set_xlim(-simulation.stds[0] * 5, simulation.stds[0] * 5)
         ax.set_ylim(-0.5, 20.5)
@@ -3379,6 +3245,19 @@ class PABScatter:
             horizontalalignment="right",
             y=0.9,
         )
+        ax.yaxis.set_label_coords(0.1, 0.9)
+
+        self.sample_size_template = "k={sample_size:2d}"
+        self.sample_size_label = ax.text(
+            simulation.stds[0] * 5 * 2,
+            20,
+            self.sample_size_template.format(sample_size=simulation.sample_size),
+            transform=ax.transData,
+            alpha=0,
+            fontsize=36,
+            zorder=1000,
+            clip_on=False,
+        )
 
         self.scatter = SimulationScatter(
             ax,
@@ -3388,6 +3267,10 @@ class PABScatter:
         )
         self.scatter.redraw()
 
+    @property
+    def simulation(self):
+        return self.scatter.simulation
+
     def open(self, i, n_frames):
         y_label = self.y_label.format(estimator=self.estimator_name)
         i = int(numpy.round(linear(0, len(y_label), i, n_frames)))
@@ -3395,6 +3278,16 @@ class PABScatter:
 
     def simulate(self, i, n_frames, model, lines):
         self.scatter.simulate(i, n_frames, model, lines)
+        self.set_sample_size(self.scatter.current_sample_size)
+
+    def decrease_sample_size(self, new_sample_size, i, n_frames, model, lines):
+        self.scatter.decrease_sample_size(new_sample_size, i, n_frames, model, lines)
+        self.set_sample_size(self.scatter.current_sample_size)
+
+    def set_sample_size(self, sample_size):
+        self.sample_size_label.set_text(
+            self.sample_size_template.format(sample_size=sample_size)
+        )
 
     def redraw(self):
         self.scatter.redraw()
@@ -3977,9 +3870,11 @@ class SwitchSimulation:
         if self.names[-1] in self.ideal_names:
             new_simulation = self.animation.ideal_simulation
             self.estimator_name = "IdealEst"
+            self.old_estimator_name = "FixHOptEst"
         else:
             new_simulation = self.animation.biased_simulation
             self.estimator_name = "FixHOptEst"
+            self.old_estimator_name = "IdealEst"
 
         old_simulation = self.animation.viz.scatter.simulation
 
@@ -3987,54 +3882,83 @@ class SwitchSimulation:
         if new_simulation is old_simulation:
             self.n_frames = 0
             self.initialized = True
+            print("already current simulation", self.names)
             return
+
+        self.animation.viz.scatter.scatter.simulation = copy.deepcopy(
+            self.animation.viz.scatter.scatter.simulation
+        )
 
         self.old_simulation = copy.deepcopy(old_simulation)
         self.new_simulation = copy.deepcopy(new_simulation)
         self.new_simulation.set_pab(self.old_simulation.pab)
+        self.simulation_to_set = new_simulation
         # Sort so that transition occurs are nearby data points
         # NOTE: Bring back if using the switch simulation...
-        # for simul in [self.old_simulation, self.new_simulation]:
-        #     simul.mu_a = numpy.sort(simul.mu_a, axis=0)
-        #     simul.mu_b = numpy.sort(simul.mu_b, axis=0)
+        for simul in [self.old_simulation, self.new_simulation]:
+            simul.mu_a = numpy.sort(simul.mu_a[: simul.sample_size, :], axis=0)
+            simul.mu_b = numpy.sort(simul.mu_b[: simul.sample_size, :], axis=0)
 
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
+
         simulation = self.animation.viz.scatter.simulation
-        simulation.mu_a = translate(
+        simulation.mu_a = linear(
             self.old_simulation.mu_a,
             self.new_simulation.mu_a,
             i,
             self.n_frames,
-            saturation=4,
         )
-        simulation.mu_b = translate(
+        simulation.mu_b = linear(
             self.old_simulation.mu_b,
             self.new_simulation.mu_b,
             i,
             self.n_frames,
-            saturation=4,
         )
         self.animation.viz.scatter.redraw()
 
         p = translate(0, 1, i, self.n_frames)
         estimator_name = ""
 
-        for i in range(max(len(self.estimator_name), len(self.old_estimator_name))):
-            switch = numpy.random.random() < p
-            if switch and i < len(self.estimator_name):
-                estimator_name += self.estimator_name[::-1][i]
-            elif i < len(self.old_estimator_name):
-                estimator_name += self.old_estimator_name[::-1][i]
+        frames_ratio = 4
+        end = 4
+        if i < self.n_frames / frames_ratio:
+            n = int(
+                linear(
+                    0,
+                    len(self.old_estimator_name) - end,
+                    i,
+                    self.n_frames / frames_ratio,
+                )
+            )
+            estimator_name = self.old_estimator_name[n:]
+        else:
+            n = int(
+                linear(
+                    len(self.estimator_name) - end,
+                    0,
+                    i - self.n_frames / frames_ratio,
+                    self.n_frames / frames_ratio,
+                )
+            )
+            estimator_name = self.estimator_name[n:]
+
+        # for i in range(max(len(self.estimator_name), len(self.old_estimator_name))):
+        #     switch = numpy.random.random() < p
+        #     if switch and i < len(self.estimator_name):
+        #         estimator_name += self.estimator_name[::-1][i]
+        #     elif i < len(self.old_estimator_name):
+        #         estimator_name += self.old_estimator_name[::-1][i]
 
         label = self.animation.viz.scatter.y_label.format(
-            estimator=estimator_name[::-1]
+            estimator=estimator_name  #  [::-1]
         )
         self.animation.viz.scatter.y_label_object.set_text(label)
 
     def leave(self):
         self(self.n_frames, None, None, None)
+        self.animation.viz.scatter.scatter.simulation = self.simulation_to_set
 
 
 def create_curve_section(
@@ -4132,8 +4056,32 @@ class Simulate:
         self.initialized = True
 
     def __call__(self, i, fig, ax, last_animation):
+
         for model in self.models:
             self.animation.viz.scatter.simulate(i, self.n_frames, model, self.rows)
+
+    def leave(self):
+        self(self.n_frames, None, None, None)
+
+
+class ShowSampleSizeLabel:
+    def __init__(self, n_frames, animation):
+        self.n_frames = n_frames
+        self.animation = animation
+        self.initialized = False
+
+    def initialize(self, fig, ax, last_animation):
+        if self.initialized:
+            return
+
+        self.fade_text = FadeText(
+            self.n_frames, self.animation.viz.scatter.sample_size_label
+        )
+
+        self.initialized = True
+
+    def __call__(self, i, fig, ax, last_animation):
+        self.fade_text(i, fig, ax, last_animation)
 
     def leave(self):
         self(self.n_frames, None, None, None)
@@ -4156,7 +4104,7 @@ class DropSampleSize:
 
     def __call__(self, i, fig, ax, last_animation):
         for model in self.models:
-            self.animation.viz.scatter.scatter.decrease_sample_size(
+            self.animation.viz.scatter.decrease_sample_size(
                 self.new_sample_size, i, self.n_frames, model, self.rows
             )
 
@@ -4273,130 +4221,6 @@ class AdjustGamma:
         self(self.n_frames, None, None, None)
 
 
-class ChapterTitle:
-    def __init__(self, n_frames, number, title, animation_builder=None):
-        self.n_frames = n_frames
-        self.number = number
-        self.title = f"{number}.\n{title}"
-        self.animation_builder = animation_builder
-        self.fontsize = 38
-        self.x_padding = 0.1
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.fig = fig
-
-        if self.animation_builder:
-            x, y = 0.5, 0
-        else:
-            x, y = -1, -1
-
-        self.ax = fig.add_axes([x, y, 0.5, 1])
-
-        if self.animation_builder:
-            self.animation = self.animation_builder(self.n_frames, self.ax)
-            self.animation.initialize(fig, ax, last_animation)
-
-        self.text_object = self.ax.text(
-            self.x_padding,
-            0.6,
-            self.title,
-            va="top",
-            ha="left",
-            zorder=zorder(),
-            transform=fig.transFigure,
-            fontsize=self.fontsize,
-        )
-
-        self.fade_out = FadeOut(FADE_OUT, self.ax)
-        self.fade_out.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        show_text(
-            self.text_object,
-            self.title,
-            i,
-            self.n_frames / 10,
-            min_i=int(numpy.log10(self.number)) + 1,
-        )
-        if self.animation_builder:
-            self.animation(i, fig, ax, last_animation)
-
-        if i > self.n_frames - self.fade_out.n_frames:
-            self.fade_out(
-                i - (self.n_frames - self.fade_out.n_frames), fig, ax, last_animation
-            )
-
-    def leave(self):
-        self.fig.clear()
-
-
-def reverse(animation):
-    if isinstance(animation, Section):
-        return Section([Reverse(anim) for anim in animation.plots[::-1]])
-    elif isinstance(animation, Parallel):
-        return Parallel([Reverse(anim) for anim in animation.animations[::-1]])
-
-    return Reverse(animation)
-
-
-class Cascade:
-    def __init__(self, n_frames, animations):
-        self.n_frames_cascade = n_frames
-        self.animations = animations
-        self.n_frames_per_animation = int(self.n_frames_cascade / len(animations))
-        self.initialized = False
-
-    @property
-    def n_frames(self):
-        return self.n_frames_cascade + self.animations[-1].n_frames
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        for anim in self.animations:
-            anim.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        n = int(linear(0, len(self.animations), i, self.n_frames_cascade))
-        for j, anim in enumerate(self.animations[:n]):
-            assert i >= j * self.n_frames_per_animation
-            anim(i - j * self.n_frames_per_animation, fig, ax, last_animation)
-
-    def leave(self):
-        for anim in self.animations:
-            anim.leave()
-
-
-class Reverse:
-    def __init__(self, animation):
-        self.n_frames = animation.n_frames
-        self.animation = animation
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.animation.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.animation(self.n_frames - i, fig, ax, last_animation)
-
-    def leave(self):
-        self.animation(0, None, None, None)
-
-
 class SetHBarWidth:
     def __init__(self, n_frames, hbar, value):
         self.n_frames = n_frames
@@ -4414,292 +4238,6 @@ class SetHBarWidth:
     def __call__(self, i, fig, ax, last_animation):
         width = linear(self.old_value, self.new_value, i, self.n_frames)
         self.hbar.set_width(width)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class FadeText:
-    def __init__(self, n_frames, text_object, alpha=1, **kwargs):
-        self.n_frames = n_frames
-        self.text_object = text_object
-        self.alpha = alpha
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        alpha = linear(0, self.alpha, i, self.n_frames)
-        self.text_object.set_alpha(alpha)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class WriteText:
-    def __init__(self, text, text_object, min_i=0, fill=True):
-        self.n_frames = int(FPS * len(text) / TEXT_SPEED)
-        self.text = text
-        self.text_object = text_object
-        self.min_i = min_i
-        self.fill = fill
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        show_text(
-            self.text_object,
-            self.text,
-            i,
-            self.n_frames,
-            min_i=self.min_i,
-            fill=self.fill,
-        )
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class WriteTextLine:
-    def __init__(self, n_frames, text, y, x_padding=0.02, fontsize=24):
-        self.n_frames = n_frames
-        self.text = text
-        self.y = y
-        self.x_padding = x_padding
-        self.fontsize = fontsize
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.ax = fig.add_axes([-1, -1, 0.1, 0.1], zorder=zorder())
-
-        self.text_object = self.ax.text(
-            self.x_padding,
-            self.y,
-            "",
-            va="top",
-            ha="left",
-            zorder=zorder(),
-            transform=fig.transFigure,
-            fontsize=self.fontsize,
-        )
-
-        self.text = WriteText(
-            self.text,
-            self.text_object,
-            fill=False,
-        )
-        self.text.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.text(i, fig, ax, last_animation)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class SlideTitle:
-    def __init__(
-        self, n_frames, position, text, x_padding=0.02, y_padding=0.05, fontsize=34
-    ):
-        self.n_frames = n_frames
-        self.number = position
-        if position is not None:
-            self.text = f"{position}. {text}"
-        else:
-            self.text = text
-        self.x_padding = x_padding
-        self.y_padding = y_padding
-        self.fontsize = fontsize
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.ax = fig.add_axes([-1, -1, 0.1, 0.1], zorder=zorder())
-
-        self.text_object = self.ax.text(
-            self.x_padding,
-            1 - self.y_padding,
-            "",
-            va="top",
-            ha="left",
-            zorder=zorder(),
-            transform=fig.transFigure,
-            fontsize=self.fontsize,
-        )
-
-        if self.number is not None:
-            min_i = int(numpy.log10(self.number)) + 1
-        else:
-            min_i = 0
-        self.text = WriteText(
-            self.text,
-            self.text_object,
-            min_i=min_i,
-            fill=False,
-        )
-        self.text.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.text(i, fig, ax, last_animation)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class SectionTitle:
-    def __init__(self, n_frames, title, fade_ratio=0.5, opacity=0.8, **kwargs):
-        self.n_frames = n_frames
-        self.title = title
-        self.x_padding = 0.1
-        self.fontsize = 34
-        self.fade_ratio = fade_ratio
-        self.opacity = opacity
-        self.fade_out_kwargs = kwargs
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.ax = fig.add_axes([-1, -1, 0.1, 0.1], zorder=zorder())
-
-        # self.text_object = self.ax.text(
-        #     self.x_padding,
-        #     0.6,
-        #     "",
-        #     va="top",
-        #     ha="left",
-        #     zorder=zorder(2),
-        #     transform=fig.transFigure,
-        #     fontsize=self.fontsize,
-        # )
-
-        # self.text = WriteText(self.title, self.text_object)
-
-        # self.fade_out = FadeOut(
-        #     self.text.n_frames * 2,
-        #     self.ax,
-        #     opacity=self.opacity,
-        #     pause=False,
-        #     zorder_pad=-1,
-        # )
-        # self.fade_out.initialize(fig, ax, last_animation)
-
-        # fade_in = Parallel(
-        #     [
-        #         self.fade_out,
-        #         self.text,
-        #     ]  # Section([Still(self.text.n_frames), self.text])]
-        # )
-
-        self.fade_out = FadeOut(
-            int(FADE_OUT / 2 * self.fade_ratio),
-            self.ax,
-            opacity=self.opacity,
-            pause=False,
-            **self.fade_out_kwargs,
-        )
-        self.fade_out.initialize(fig, ax, last_animation)
-
-        y = self.fade_out_kwargs.get("y", 0)
-        text_y = 0.6 * (1 - y) + y
-
-        self.text_object = self.ax.text(
-            self.x_padding,
-            text_y,
-            self.title,  # "",
-            va="top",
-            ha="left",
-            zorder=zorder(),
-            transform=fig.transFigure,
-            fontsize=self.fontsize,
-        )
-
-        # self.text = WriteText(self.title, self.text_object)
-        self.text = FadeText(self.fade_out.n_frames, self.text_object)
-
-        fade_in = Parallel([self.fade_out, self.text])
-
-        fade_out = reverse(fade_in)
-
-        n_frames_still = max(self.n_frames - (fade_in.n_frames + fade_out.n_frames), 0)
-        self.section = Section([fade_in, Still(n_frames_still), fade_out])
-        self.section.initialize(fig, ax, last_animation)
-        assert (
-            self.section.n_frames == self.n_frames
-        ), f"{self.section.n_frames} != {self.n_frames}"
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.section(i, fig, ax, last_animation)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class BulletPoint:
-    def __init__(
-        self, n_frames, text, animation_builder, position, total, y=85, fontsize=24
-    ):
-        self.n_frames = n_frames
-        self.text = f"{position}.\n{text}"
-        self.fontsize = 32
-        self.x_padding = 0.025
-        self.y = y
-        self.animation_builder = animation_builder
-        self.position = position
-        self.total = total
-        self.width = 1 / total
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        if self.animation_builder:
-            x, y = (self.position - 1) * self.width, 0
-        else:
-            x, y = -1, -1
-
-        self.ax = fig.add_axes([x, y, self.width, 1], zorder=zorder())
-        if self.animation_builder:
-            self.animation = self.animation_builder(self.n_frames, self.ax)
-            self.animation.initialize(fig, ax, last_animation)
-        self.text_object = self.ax.text(
-            self.x_padding + (self.position - 1) * self.width,
-            self.y,
-            f"{self.position}. " + self.text,
-            va="top",
-            ha="left",
-            transform=fig.transFigure,
-            fontsize=self.fontsize,
-        )
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        show_text(self.text_object, self.text, i, self.n_frames / 10, min_i=3)
-        if self.animation_builder:
-            self.animation(i, fig, ax, last_animation)
 
     def leave(self):
         self(self.n_frames, None, None, None)
@@ -5147,87 +4685,6 @@ class MiniSimpleLinearScale:
         self(self.n_frames, None, None, None)
 
 
-class TextBox:
-    def __init__(
-        self,
-        texts,
-        ax,
-        x,
-        y,
-        height,
-        min_alpha=0.1,
-        fontsize=16,
-        minfontsize=8,
-        colors=None,
-        **kwargs,
-    ):
-        self.texts = texts
-        self.current_text = texts[0]
-        self.create_objects(
-            ax, x, y, height, fontsize=fontsize, colors=colors, **kwargs
-        )
-        self.x = x
-        self.y = y
-        self.min_alpha = min_alpha
-        self.minfontsize = minfontsize
-        self.fontsize = fontsize
-        self.max_delta = height * (len(texts) - 1)
-        self.initiate_move(texts[0])
-        self.set_text(texts[0])
-
-    def create_objects(self, ax, x, y, height, colors, **kwargs):
-        self.objects = []
-        for i, text in enumerate(self.texts):
-            self.objects.append(
-                ax.text(
-                    x,
-                    y - i * height,
-                    text,
-                    color=colors[i] if colors else None,
-                    **kwargs,
-                )
-            )
-
-    def get_i(self, text):
-        return self.texts.index(text)
-
-    def get_snapshot(self):
-        return [text_object.get_position() for text_object in self.objects]
-
-    def initiate_move(self, text):
-        self.positions = self.get_snapshot()
-        self.moving_to_text = text
-
-    def move_text(self, frac, text):
-        assert text == self.moving_to_text, f"Movement to {text} not initiated"
-        i = self.get_i(text)
-        x, y = self.positions[i]
-        diff = (self.y - y) * frac
-        for position, text_object in zip(self.positions, self.objects):
-            x, y = position
-            new_y = y + diff
-            text_object.set_position((x, new_y))
-
-            delta = numpy.abs(self.y - new_y)
-
-            delta_ratio = delta / self.max_delta
-
-            opacity = delta_ratio * self.min_alpha + (1 - delta_ratio)
-            text_object.set_alpha(opacity)
-
-            fontsize = (
-                delta_ratio * self.minfontsize + (1 - delta_ratio) * self.fontsize
-            )
-
-            text_object.set_fontsize(fontsize)
-
-        # TODO: Set alpha based on how far the label is from focus
-
-    def set_text(self, text):
-        self.move_text(1, text)
-        self.current_text = text
-
-
 def build_estimator_change_chain(n_frames, ax, plot, estimators, repetitions=3):
 
     bbox = ax.get_position()
@@ -5371,28 +4828,6 @@ class EstimatorFadeIn:
         self.scatter.estimator = self.estimator
 
 
-class MovingTextBox:
-    def __init__(self, n_frames, text_box, target_text):
-        self.n_frames = n_frames
-        self.text_box = text_box
-        self.target_text = target_text
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.text_box.initiate_move(self.target_text)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.text_box.move_text(i / self.n_frames, self.target_text)
-
-    def leave(self):
-        self.text_box.set_text(self.target_text)
-
-
 class EstimatorChange:
     def __init__(self, n_frames, scatter, plot, estimator, max_budgets=100):
         self.n_frames = n_frames
@@ -5444,99 +4879,6 @@ class EstimatorChange:
     def leave(self):
         self(self.n_frames, None, None, None)
         self.scatter.estimator = self.estimator
-
-
-class Parallel:
-    def __init__(self, animations):
-        self.animations = animations
-        self.initialized = False
-
-    @property
-    def n_frames(self):
-        return max(animation.n_frames for animation in self.animations)
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        for animation in self.animations:
-            animation.initialize(fig, ax, last_animation)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        for animation in self.animations:
-            if i <= animation.n_frames:
-                animation(i, fig, ax, last_animation)
-            else:
-                animation.leave()
-
-    def leave(self):
-        for animation in self.animations:
-            animation.leave()
-
-
-class FadeOut:
-    def __init__(
-        self,
-        n_frames,
-        ax=None,
-        opacity=1,
-        pause=True,
-        zorder_pad=0,
-        transform=None,
-        color="white",
-        x=0,
-        y=0,
-        width=1,
-        height=1,
-    ):
-        self.n_frames = n_frames
-        self.ax = ax
-        self.opacity = opacity
-        self.pause = 2 if pause else 1
-        self.zorder_pad = zorder_pad
-        self.transform = transform
-        self.color = color
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        if self.ax is None:
-            self.ax = fig.add_axes([-1, -1, 1, 1], zorder=zorder() + self.zorder_pad)
-
-        # TODO: Add white rectangle
-
-        self.patch = patches.Rectangle(
-            (self.x, self.y),
-            self.width,
-            self.height,
-            fill=True,
-            color=self.color,
-            zorder=zorder() + self.zorder_pad,
-            transform=fig.transFigure if self.transform is None else self.transform,
-            clip_on=False,
-            alpha=0.0,
-        )
-        self.ax.add_patch(self.patch)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        alpha = min(
-            linear(0, self.opacity, i, int(self.n_frames / self.pause)), self.opacity
-        )
-        self.patch.set_alpha(alpha)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
 
 
 class MiniSimulation:
@@ -6270,154 +5612,6 @@ class SetEstimatorRho:
         self(self.n_frames, None, None, None)
 
 
-class CodeTitle:
-    def __init__(self, n_frames, title, code_block, x, y, fontsize=28):
-        self.n_frames = n_frames
-        self.title = title
-        self.code_block = code_block
-        self.x = x
-        self.y = y
-        self.fontsize = fontsize
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        text_object = self.code_block.ax.text(
-            self.x, self.y - 0.25, "", va="bottom", ha="left", fontsize=self.fontsize
-        )
-
-        self.code_block.ax.axhline(0, color="black")
-
-        self.write_text = WriteText(self.title, text_object, fill=False)
-
-        # TODO: Maybe add a line
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.write_text(i, fig, ax, last_animation)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class CodeLine:
-    def __init__(self, n_frames, line, comment, comment_side="left", fontsize=20):
-        self.n_frames = n_frames
-        self.line = line
-        self.comment = comment
-        self.fontsize = fontsize
-        self.index = 0
-        self.comment_side = comment_side
-        self.x_padding = 0.05
-        if comment_side == "left":
-            self.comment_x = 1
-        else:
-            self.comment_x = 0
-            self.x_padding *= -1
-        self.code_block = None
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        text_object = self.code_block.ax.text(
-            0, self.index, "", va="bottom", ha="left", fontsize=self.fontsize
-        )
-
-        self.write_text = WriteText(self.line, text_object, fill=False)
-
-        if self.comment:
-            text_object = self.code_block.ax.text(
-                self.comment_x + self.x_padding,
-                self.index,
-                "",
-                va="bottom",
-                ha=self.comment_side,
-                fontsize=self.fontsize,
-            )
-
-            self.write_comment = WriteText(self.comment, text_object, fill=False)
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.write_text(i, fig, ax, last_animation)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class ShowComment:
-    def __init__(self, n_frames, line):
-        self.n_frames = n_frames
-        self.line = line
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        self.line.write_comment(i, fig, ax, last_animation)
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class CodeBlock:
-    def __init__(self, title, lines, x=0, y=0, width=1, height=None, line_height=0.1):
-        self.lines = lines
-        self.n_frames = 0
-        self.title = title
-        self.x = x
-        self.y = y
-        self.width = width
-        if height is None:
-            height = line_height * (len(lines) + title.count("\n") + 2)
-        self.height = height
-        self.line_height = line_height
-        self.initialized = False
-
-    def show_title(self, n_frames):
-        # TODO: Create the text object
-        return CodeTitle(n_frames, self.title, self, x=0, y=0)
-
-    def show_comment(self, n_frames, i):
-        commented_lines = [line for line in self.lines if line.comment is not None]
-        return ShowComment(n_frames, commented_lines[i])
-
-    def show_lines(self):
-        return Section(self.lines)
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.ax = fig.add_axes(
-            [self.x, 1 - self.y - self.height, self.width, self.height], zorder=zorder()
-        )
-        self.ax.set_ylim((len(self.lines), -(self.title.count("\n") + 1)))
-        despine(self.ax)
-
-        for i, line in enumerate(self.lines):
-            line.index = i + 1
-            line.code_block = self
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        pass
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
 class AddStatLabel:
     def __init__(self, comparison, key, label, x, y, y_offset=0):
         self.n_frames = WriteText(label, None).n_frames
@@ -6516,111 +5710,11 @@ class AddMeaningfullLabel(AddStatLabel):
         self.scatter.set_offsets([(gamma, offsets[0][1])])
 
         lower, pab, upper = self.comparison.method_object.pab
-        print(upper, gamma)
 
         if gamma <= upper:
             self.scatter.set_color(variances_colors(2))  # green
         else:
             self.scatter.set_color(variances_colors(3))  # red
-
-
-class Template:
-    def __init__(self, n_frames):
-        self.n_frames = n_frames
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        pass
-
-    def leave(self):
-        self(self.n_frames, None, None, None)
-
-
-class Cover:
-    def __init__(self, n_frames):
-        self.n_frames = n_frames
-        self.initialized = False
-
-    def initialize(self, fig, ax, last_animation):
-        if self.initialized:
-            return
-
-        self.title = plt.text(
-            0.5,
-            0.7,
-            ("Accounting for Variance\n" "in Machine Learning Benchmarks"),
-            fontsize=30,
-            horizontalalignment="center",
-            transform=plt.gcf().transFigure,
-            verticalalignment="center",
-        )
-
-        authors = """
-        Xavier Bouthillier$^{1,2}$, Pierre Delaunay$^3$, Mirko Bronzi$^2$, Assya Trofimov$^{1,2,4}$,
-        Brennan Nichyporuk$^{2,5,6}$, Justin Szeto$^{2,5,6}$, Naz Sepah$^{2,5,6}$,
-        Edward Raff$^{7,8}$, Kanika Madan$^{1,2}$, Vikram Voleti$^{1,2}$,
-        Samira Ebrahimi Kahou$^{2,6}$, Vincent Michalski$^{1,2}$, Dmitriy Serdyuk$^{1,2}$,
-        Tal Arbel$^{2,5,6,10}$, Christopher Pal$^{2,9,10,11}$, Gaël Varoquaux$^{2,6,12}$, Pascal Vincent$^{1,2,10}$"""
-
-        affiliations = """
-        $^1$Université de Montréal, $^2$Mila, $^3$Independant, $^4$IRIC, $^5$Center for Intelligent Machines,
-        $^6$McGill University, $^7$Booz Allen Hamilton, $^8$University of Maryland, Baltimore County,
-        $^9$Polytechnique, $^{10}$CIFAR, $^{11}$Element AI, $^{12}$Inria
-        """
-
-        self.authors_text = plt.text(
-            0.5,
-            0.45,
-            authors,
-            fontsize=16,
-            horizontalalignment="center",
-            transform=plt.gcf().transFigure,
-            verticalalignment="center",
-        )
-
-        self.affiliations_text = plt.text(
-            0.5,
-            0.2,
-            affiliations,
-            fontsize=12,
-            horizontalalignment="center",
-            transform=plt.gcf().transFigure,
-            verticalalignment="center",
-        )
-        self.initialized = True
-
-    def __call__(self, i, fig, ax, last_animation):
-        pass
-
-    def leave(self):
-        pass
-        # self.title.set_position((-1, -1))
-        # self.authors_text.set_position((-1, -1))
-        # self.affiliations_text.set_position((-1, -1))
-
-
-class RemoveCover:
-    def __init__(self, cover):
-        self.n_frames = 0
-        self.cover = cover
-        self.initialized = True
-
-    def initialize(self, fig, ax, last_animation):
-        pass
-
-    def __call__(self, i, fig, ax, last_animation):
-        pass
-
-    def leave(self):
-        self.cover.title.remove()
-        self.cover.authors_text.remove()
-        self.cover.affiliations_text.remove()
 
 
 def build_papers_with_code(
@@ -6630,6 +5724,7 @@ def build_papers_with_code(
     axis_tick_fontsize=16,
     ax=None,
     papers_with_code=None,
+    with_ref=False,
 ):
     # sections = [PapersWithCode(FPS * 5)]
     # for i in range(1, 76):
@@ -6651,6 +5746,7 @@ def build_papers_with_code(
             axis_label_fontsize=axis_label_fontsize,
             axis_tick_fontsize=axis_tick_fontsize,
             ax=ax,
+            with_ref=with_ref,
         )
 
         sections.append(papers_with_code)
@@ -6679,7 +5775,7 @@ def build_intro(data_folder):
     cover = Cover(FPS * 4)
     fade_out = FadeOut(FADE_OUT / 2)
 
-    papers_with_code = PapersWithCode(0, marker_size=30)
+    papers_with_code = PapersWithCode(0, marker_size=30, with_ref=True)
 
     sections = [
         cover,
@@ -6694,11 +5790,12 @@ def build_intro(data_folder):
         Still(int(FPS * 3.5)),
         AddPapersWithCodeSOTALine(FPS * 2, papers_with_code),
         Still(int(FPS * 5.5)),
-        build_papers_with_code(int(FPS * 25.5), papers_with_code=papers_with_code),
+        build_papers_with_code(int(FPS * 12), papers_with_code=papers_with_code),
         # Still(int(FPS * 4.5)),
-        VarianceLabel(FPS * 6),
-        EstimatorLabel(int(FPS * 4.5)),
-        ComparisonLabel(FPS * 8),
+        VarianceLabel(FPS * 6, papers_with_code),
+        EstimatorLabel(int(FPS * 4.5), papers_with_code),
+        ComparisonLabel(FPS * 8, papers_with_code),
+        papers_with_code,
         # FadeOut(FADE_OUT / 2),
         # Zoom(FPS * 2),
         # Still(FPS * 5),
@@ -6708,7 +5805,16 @@ def build_intro(data_folder):
 
 
 def build_variances_chapter_title():
-    return ChapterTitle(FPS * 5, 1, "Variance in\nML Benchmarks", MiniVariance)
+    return ChapterTitle(
+        FPS * 5,
+        1,
+        (
+            "What are the different\n"
+            "sources of variation and\n"
+            "which are most important?"
+        ),
+        MiniVariance,
+    )
 
 
 def build_variances(data_folder):
@@ -6864,7 +5970,7 @@ def build_variances(data_folder):
         ),
         Still(FPS * 12),
         FadeOut(FADE_OUT / 2),
-        build_papers_with_code(int(FPS * 25)),
+        build_papers_with_code(int(FPS * 25), with_ref=True),
         FadeOut(FADE_OUT / 2),
     ]
 
@@ -6872,7 +5978,12 @@ def build_variances(data_folder):
 
 
 def build_estimators_chapter_title():
-    return ChapterTitle(FPS * 5, 2, "Estimating\nMean Performance", MiniEstimator)
+    return ChapterTitle(
+        FPS * 5,
+        2,
+        ("How can we estimate\n" "reliably the average\n" "performance?"),
+        MiniEstimator,
+    )
 
 
 # CodeBlock
@@ -7007,8 +6118,25 @@ def build_estimators(data_folder):
         # MoveSimpleLinearScale(FPS * 2),
         VarianceEquations(FPS * 30),
         estimators,
-        reverse(FadeOut(FPS * 2, x=0, y=0, width=1, height=0.6)),
+        Parallel(
+            [
+                FadeInWhiskers(
+                    [FPS * 2, FPS * 1, int(FPS * 0.5), int(FPS * 0.5)],
+                    estimators,
+                    key=key,
+                    cascade=FPS * 2,
+                )
+                for key in ["left", "right"]
+            ]
+        ),
+        # reverse(FadeOut(FPS * 2, x=0, y=0, width=1, height=0.6)),
         Still(FPS * 10),
+        FadeInTopWhisker(FADE_OUT / 2, estimators),
+        Still(FPS * 5),
+        # AlignWhiskerPositions(FPS * 5, estimators),
+        # Still(FPS * 5),
+        # ResetWhiskerPositions(FPS * 5, estimators),
+        # Still(FPS * 5),
         EstimatorIncreaseK(FPS * 10, estimators),
         Still(FPS * 5),
         EstimatorAdjustRho(FPS * 10, estimators, new_rho=2),
@@ -7062,7 +6190,12 @@ def build_estimators(data_folder):
 
 
 def build_comparison_chapter_title():
-    return ChapterTitle(FPS * 5, 3, "Comparing\nAlgorithms", MiniComparison)
+    return ChapterTitle(
+        FPS * 5,
+        3,
+        "How should we compare\nalgorithms and account\nfor variance?",
+        MiniComparison,
+    )
 
 
 def build_comparisons(data_folder):
@@ -7265,7 +6398,14 @@ def build_simulations(data_folder):
 
     sections += [
         # TODO: Adjust to FixedHOpt with a rho label, than revert.
-        Still(FPS * 10),
+        # BackAndForthTransitSimulation(
+        #     FPS * 5, simulation_animation, ["ideal_simulation", "biased_simulation"]
+        # ),
+        Still(FPS * 5),
+        SwitchSimulation(FPS * 3, simulation_animation, ["biased-avg"]),
+        Still(FPS * 5),
+        SwitchSimulation(FPS * 1, simulation_animation, ["oracle"]),
+        Still(FPS * 5),
         MovePAB(FPS * 7, simulation_animation, pab=0.4),
         MovePAB(FPS * 4, simulation_animation, pab=1),
         MovePAB(int(FPS * 0.5), simulation_animation, pab=0.4),
@@ -7306,6 +6446,7 @@ def build_simulations(data_folder):
             },
             switch_simulation=[
                 Still(FPS * 2),
+                ShowSampleSizeLabel(int(FADE_OUT / 2), simulation_animation),
                 DropSampleSize(
                     FPS * 2,
                     simulation_animation,
@@ -7313,6 +6454,7 @@ def build_simulations(data_folder):
                     rows=[0, -1],
                     sample_size=1,
                 ),
+                reverse(ShowSampleSizeLabel(int(FADE_OUT / 2), simulation_animation)),
                 Still(FPS * 2),
             ],
             opacity=OPACITY,
@@ -7333,6 +6475,7 @@ def build_simulations(data_folder):
             switch_simulation=[
                 Still(FPS * 2),
                 SwitchSimulation(1, simulation_animation, ["biased-avg"]),
+                ShowSampleSizeLabel(int(FADE_OUT / 2), simulation_animation),
                 Simulate(
                     FPS * 2,
                     simulation_animation,
@@ -7340,6 +6483,7 @@ def build_simulations(data_folder):
                     rows=[0, -1],
                     sample_size=SAMPLE_SIZE,
                 ),
+                reverse(ShowSampleSizeLabel(int(FADE_OUT / 2), simulation_animation)),
             ],
             opacity=OPACITY,
         ),
@@ -7413,6 +6557,7 @@ def build_variance_recap(data_folder):
     # TODO: Maybe add a title at top of slide?
 
     sections = [
+        # SlideTitle(FPS * 5, 1, "About Variance"),
         BulletPoint(
             FPS * 10,
             text="Variance is\nlarge enough\nto be concerning",
@@ -7461,6 +6606,7 @@ def build_estimators_recap(data_folder):
     # 2. Using the same hyperparameters for many samples reduces the quality of the average empirical risk estimation
     # 3. Randomizing many sources of variation attenuates the loss of quality
     sections = [
+        # SlideTitle(FPS * 5, 2, "About mean performance estimation"),
         BulletPoint(
             FPS * 10,
             text="Ideal estimator\nis expensive",
@@ -7510,17 +6656,18 @@ def build_comparisons_recap(data_folder):
         #     position=1,
         #     total=2,
         # ),
+        # SlideTitle(FPS * 5, 3, "About comparison methods"),
         BulletPoint(
             FPS * 10,
-            text="Biased estimator is a\nreasonably good and\ncheap approximation",
-            animation_builder=MiniSimulation,
+            text="False positives and\nnegatives are easily\ncontroled with $P(A>B)$",
+            animation_builder=MiniH1Change,
             position=1,
             total=2,
         ),
         BulletPoint(
             FPS * 10,
-            text="False positives and\nnegatives are easily\ncontroled with $P(A>B)$",
-            animation_builder=MiniH1Change,
+            text="Biased estimator is a\nreasonably good and\ncheap approximation",
+            animation_builder=MiniSimulation,
             position=2,
             total=2,
         ),

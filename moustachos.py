@@ -123,9 +123,6 @@ def h_moustachos(
     plots = {}
 
     if whisker_width:
-        print(x)
-        print(whisker_length[0])
-        print(whisker_length[0])
         plots["left_whisker"] = ax.plot(
             [x - whisker_length[0], x - whisker_length[0]],
             [y - whisker_width, y + whisker_width],

@@ -53,37 +53,46 @@ from simulations import (
     PABTest,
 )
 
+from transitions import FadeOut, FADE_OUT, Still
+
+from base import zorder
+
+from compositions import Section, Parallel, Chapter, Cascade
+
+from base import zorder, FPS, Animation, Cover, RemoveCover
+
+from text import (
+    FadeText,
+    WriteText,
+    WriteTextLine,
+    SlideTitle,
+    BulletPoint,
+    TextBox,
+    MovingTextBox,
+    CodeTitle,
+    CodeLine,
+    ShowComment,
+    CodeBlock,
+    ChapterTitle,
+    SectionTitle,
+)
+
+
 from mlsys2021 import (
-    zorder,
-    Parallel,
     Point,
     variances_colors,
-    Animation,
-    Black,
-    Cover,
-    Chapter,
-    SlideTitle,
-    ChapterTitle,
-    Section,
     ComparisonMethod,
     AddModel,
     ChangeDists,
-    FPS,
-    Still,
-    FadeOut,
-    FADE_OUT,
-    SectionTitle,
-    WriteText,
     ToyPABSimulation,
     AddPABWhiskers,
     RemoveBlocks,
     ComputePAB,
     AddPABWhiskers,
     AddPABGamma,
-    Cascade,
     AddSignificanceLabel,
     AddMeaningfullLabel,
-    AdjustComparisonGamma
+    AdjustComparisonGamma,
 )
 
 
@@ -1182,9 +1191,14 @@ def build_intro(position=numbering()):
 
     comparison = ComparisonMethod(0, "", 0.2, width=0.6, y_margin=0.35, height=0.3)
     # TODO: Add A and B labels, but wait before adding the curves
+
+    cover = Cover(FPS * 4)
+    fade_out = FadeOut(FADE_OUT / 2)
+
     sections = [
-        Cover(FPS * 5),
-        Black(FPS / 2),
+        cover,
+        fade_out,
+        RemoveCover(cover),
         comparison,
         AddModel(FPS * 1, comparison, "A", mean=1, std=2, scale=0.85, fontsize=24),
         AddModel(FPS * 1, comparison, "B", mean=-1, std=2, scale=0.85, fontsize=24),
@@ -1695,7 +1709,7 @@ def build_sample_size(position=numbering()):
     comparison = ComparisonMethod(0, "", 0.45, width=0.5, y_margin=0.5, height=0.2)
 
     # title = ChapterTitle(FPS * 5, position, "Sample size")
-    title = SlideTitle(FPS * 3, position, "Sample size")
+    title = SlideTitle(FPS * 3, position, "Sample size (number of trainings)")
 
     sections = [
         title,
@@ -1727,10 +1741,54 @@ def build_sample_size(position=numbering()):
     return Chapter("Sample size", sections, pbar_position=position)
 
 
-def build_recap(position=numbering()):
-    sections = [ChapterTitle(FPS * 5, position, "Recap")]
+def build_recap():
+    sections = [
+        SlideTitle(FPS * 3, None, "In Summary"),
+        BulletPoint(
+            FPS * 10,
+            text="Use random data\nsplits whenever\npossible",
+            animation_builder=None,
+            y=0.7,
+            position=1,
+            total=3,
+        ),
+        BulletPoint(
+            FPS * 10,
+            text="Randomize as\nmany sources of\nvariation as\npossible",
+            animation_builder=None,
+            y=0.7,
+            position=2,
+            total=3,
+        ),
+        BulletPoint(
+            FPS * 10,
+            text="Use a statistical\ntest such as\n$P(A>B)$",
+            animation_builder=None,
+            y=0.7,
+            position=3,
+            total=3,
+        ),
+        WriteTextLine(
+            FPS * 4,
+            (
+                "Watch our 17mins video at MLSys2021 for more information\n"
+                "on our empirical investigations supporting these recommendations."
+            ),
+            y=0.25,
+        ),
+        WriteTextLine(
+            FPS * 3,
+            (
+                "Code to generate this video with matplotlib is available at\n"
+                "github.com/bouthilx/ml-method-video"
+            ),
+            y=0.10,
+            fontsize=18,
+        ),
+        Still(FPS * 10),
+    ]
 
-    return Chapter("Recap", sections, pbar_position=position)
+    return Chapter("Recap", sections)
 
 
 chapters = dict(

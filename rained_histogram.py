@@ -28,6 +28,7 @@ class RainedHistogram:
         marker_size=3,
         sky_padding=1.1,
         y_padding=0,
+        scale=1,
     ):
 
         self.scatter = scatter
@@ -55,6 +56,10 @@ class RainedHistogram:
         self.normalized_data = copy.deepcopy(data)
         self.normalized_data -= self.normalized_data.min()
         self.normalized_data /= self.normalized_data.max()
+        assert scale <= 1, scale
+        self.normalized_data *= scale
+        self.normalized_data -= self.normalized_data.mean()
+        self.normalized_data += 0.5
 
         columns = numpy.linspace(0, 1, self.n_columns)
         data_col_idx = numpy.digitize(self.normalized_data, columns, right=False)
