@@ -21,7 +21,6 @@ import joblib
 
 from sklearn.neighbors import KernelDensity
 
-from olympus.studies.simul.main import load_results
 from utils import plot_line, adjust_line
 
 

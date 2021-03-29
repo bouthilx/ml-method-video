@@ -552,8 +552,8 @@ def get_references(tbl):
 
 
 class VariancesPlot:
-    def __init__(self, root):
-        self.root = os.path.expanduser("~/Dropbox/Olympus-Data")
+    def __init__(self, root="~/Dropbox/Olympus-Data"):
+        self.root = os.path.expanduser(root)
 
     def load(self):
         self.data = load_data(self.root)
